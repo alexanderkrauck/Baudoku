@@ -136,6 +136,9 @@ export default function RecordPage() {
 
       // 1. Secure in Google Drive FIRST
       setSyncStatus('Sichere Rohdaten in Google Drive...');
+      const uploadedPhotosIds: Record<string, string> = {};
+      let rawAudioDriveId = '';
+      
       if (cachedAccessToken && auth.currentUser) {
         try {
           const rootId = await findOrCreateRootFolder(cachedAccessToken);
@@ -143,37 +146,20 @@ export default function RecordPage() {
           driveFolderId = await createSubFolder(folderName, rootId, cachedAccessToken);
           
           if (audioBlob) {
-            await uploadFileToFolder(audioBlob, 'audio_aufnahme.webm', 'audio/webm', driveFolderId, cachedAccessToken);
+            rawAudioDriveId = await uploadFileToFolder(audioBlob, 'audio_aufnahme.webm', 'audio/webm', driveFolderId, cachedAccessToken);
           }
           
           for (let i = 0; i < photos.length; i++) {
-            await uploadFileToFolder(photos[i].blob, `foto_${i+1}.jpg`, photos[i].blob.type, driveFolderId, cachedAccessToken);
+            const photoIdInDrive = await uploadFileToFolder(photos[i].blob, `foto_${i+1}.jpg`, photos[i].blob.type, driveFolderId, cachedAccessToken);
+            uploadedPhotosIds[photos[i].id] = photoIdInDrive;
           }
         } catch (e) {
-          console.error("Drive upload failed, continuing to Cloud Storage", e);
+          console.error("Drive upload failed", e);
+          throw new Error('Upload to Google Drive failed.');
         }
       }
 
-      // 2. Upload to Firebase Storage
-      setSyncStatus('Sichere Daten in der Cloud...');
-      const uploadedPhotos: Record<string, string> = {};
-      let rawAudioUrl = '';
-      if (auth.currentUser) {
-        if (audioBlob) {
-          const audioRef = ref(storage, `users/${auth.currentUser.uid}/audio/${reportId}.webm`);
-          await uploadBytes(audioRef, audioBlob);
-          rawAudioUrl = await getDownloadURL(audioRef);
-        }
-        
-        for (const photo of photos) {
-          const storageRef = ref(storage, `users/${auth.currentUser.uid}/photos/${photo.id}`);
-          await uploadBytes(storageRef, photo.blob);
-          const downloadUrl = await getDownloadURL(storageRef);
-          uploadedPhotos[photo.id] = downloadUrl;
-        }
-      }
-
-      // 3. Save pending status to Firestore
+      // 2. Save pending status to Firestore
       setSyncStatus('Speichere Dokumentenstatus...');
       const pendingReportData: ReportData = {
         id: reportId,
@@ -183,15 +169,15 @@ export default function RecordPage() {
         rooms: [],
         status: 'analyzing',
         driveFolderId,
-        rawAudioUrl,
-        rawPhotoUrls: Object.values(uploadedPhotos)
+        rawAudioUrl: rawAudioDriveId, // Store the Drive ID here instead of a URL
+        rawPhotoUrls: Object.values(uploadedPhotosIds) // Store Drive IDs here
       };
       
       if (auth.currentUser) {
         await setDoc(doc(db, 'users', auth.currentUser.uid, 'reports', reportId), pendingReportData);
       }
 
-      // 4. Send to Gemini Backend
+      // 3. Send to Gemini Backend
       setSyncStatus('KI-Analyse läuft (dies kann 1-2 Minuten dauern)...');
       const formData = new FormData();
       if (audioBlob) {
@@ -225,13 +211,17 @@ export default function RecordPage() {
       
       const data = await response.json();
       
-      // 5. Update Firestore with final analyzed data
+      // 4. Update Firestore with final analyzed data
       setSyncStatus('Speichere fertigen Bericht...');
       if (auth.currentUser) {
         if (data.rooms) {
           data.rooms = data.rooms.map((room: any) => ({
             ...room,
-            photoUrls: (room.photoIds || []).map((id: string) => uploadedPhotos[id] || '')
+            photoUrls: (room.photoIds || []).map((id: string) => {
+              // Now that we don't have download URLs, we can just save the drive file ID if needed, 
+              // or let the UI fetch it. We stored the drive IDs in uploadedPhotosIds using the photo ID.
+              return uploadedPhotosIds[id] || '';
+            })
           }));
         }
         
@@ -258,7 +248,7 @@ export default function RecordPage() {
         <h2 className="text-2xl font-bold mb-4">{syncStatus}</h2>
         <div className="space-y-2 max-w-sm text-neutral-400 text-sm">
           <p>Schritt 1: Rohdaten in Google Drive sichern</p>
-          <p>Schritt 2: Cloud-Backup erstellen</p>
+          <p>Schritt 2: Status in der App speichern</p>
           <p>Schritt 3: KI-Modell analysiert Audio & Fotos</p>
           <p className="mt-4 pt-4 border-t border-neutral-800 text-neutral-500 text-xs">
             Ihre Aufnahmen gehen nicht verloren. Selbst wenn die Analyse abbricht, 

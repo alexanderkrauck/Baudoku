@@ -48,7 +48,7 @@ export async function createSubFolder(name: string, parentId: string, accessToke
   return fileMeta.id;
 }
 
-export async function uploadFileToFolder(file: Blob, name: string, mimeType: string, parentId: string, accessToken: string): Promise<void> {
+export async function uploadFileToFolder(file: Blob, name: string, mimeType: string, parentId: string, accessToken: string): Promise<string> {
   const metadata = {
     name,
     parents: [parentId]
@@ -69,5 +69,8 @@ export async function uploadFileToFolder(file: Blob, name: string, mimeType: str
   if (!response.ok) {
     throw new Error(`Failed to upload file ${name}`);
   }
+  
+  const data = await response.json();
+  return data.id;
 }
 

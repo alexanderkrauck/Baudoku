@@ -76,27 +76,34 @@ export default function ReportPage() {
       const formData = new FormData();
       
       // Fetch audio blob if available
-      if (report.rawAudioUrl) {
-        const audioRes = await fetch(report.rawAudioUrl);
+      if (report.rawAudioUrl && cachedAccessToken) {
+        const audioRes = await fetch(`https://www.googleapis.com/drive/v3/files/${report.rawAudioUrl}?alt=media`, {
+          headers: { Authorization: `Bearer ${cachedAccessToken}` }
+        });
+        if (!audioRes.ok) throw new Error('Audio konnte nicht von Drive geladen werden.');
         const audioBlob = await audioRes.blob();
         formData.append('audio', audioBlob, 'recording.webm');
       } else {
-        alert("Keine Audio-Rohdaten gefunden.");
+        alert("Keine Audio-Rohdaten gefunden oder Zugriff verweigert.");
         setSyncing(false);
         return;
       }
       
       // Fetch photo blobs
       const photoTimestamps: { id: string, timestamp: string }[] = [];
-      if (report.rawPhotoUrls && report.rawPhotoUrls.length > 0) {
+      if (report.rawPhotoUrls && report.rawPhotoUrls.length > 0 && cachedAccessToken) {
         for (let i = 0; i < report.rawPhotoUrls.length; i++) {
-          const url = report.rawPhotoUrls[i];
-          const photoRes = await fetch(url);
-          const photoBlob = await photoRes.blob();
-          const photoId = `photo_${i}`;
-          formData.append('photos', photoBlob, photoId);
-          // Without original relative times, we just pass sequential unknown times
-          photoTimestamps.push({ id: photoId, timestamp: `00:0${i}` });
+          const fileId = report.rawPhotoUrls[i];
+          const photoRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+            headers: { Authorization: `Bearer ${cachedAccessToken}` }
+          });
+          if (photoRes.ok) {
+            const photoBlob = await photoRes.blob();
+            const photoId = `photo_${i}`;
+            formData.append('photos', photoBlob, photoId);
+            // Without original relative times, we just pass sequential unknown times
+            photoTimestamps.push({ id: photoId, timestamp: `00:0${i}` });
+          }
         }
       }
       formData.append('photoTimestamps', JSON.stringify(photoTimestamps));
@@ -273,15 +280,18 @@ export default function ReportPage() {
                     <h4 className="text-sm font-medium text-neutral-400 uppercase tracking-wider mb-2">Verknüpfte Fotos ({room.photoUrls?.length || room.photoIds?.length || 0})</h4>
                     {room.photoUrls && room.photoUrls.length > 0 ? (
                       <div className="grid grid-cols-2 gap-3">
-                        {room.photoUrls.map((url, pidx) => (
-                          <div key={pidx} className="aspect-square bg-neutral-100 rounded-lg border border-neutral-200 flex items-center justify-center overflow-hidden">
-                            {url ? (
-                              <img src={url} alt={`Raumfoto ${pidx + 1}`} className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="text-xs text-neutral-400 p-2 text-center break-all">{room.photoIds[pidx]}</span>
-                            )}
-                          </div>
-                        ))}
+                        {room.photoUrls.map((url, pidx) => {
+                          const fileId = url;
+                          return (
+                            <div key={pidx} className="aspect-square bg-neutral-100 rounded-lg border border-neutral-200 flex items-center justify-center overflow-hidden">
+                              {fileId ? (
+                                <img src={`https://lh3.googleusercontent.com/d/${fileId}`} alt={`Raumfoto ${pidx + 1}`} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-xs text-neutral-400 p-2 text-center break-all">{room.photoIds[pidx]}</span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-neutral-400 text-sm italic">Keine Fotos zugeordnet.</p>
