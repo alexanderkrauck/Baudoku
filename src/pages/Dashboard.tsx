@@ -106,8 +106,20 @@ export default function Dashboard() {
                 className="bg-white border border-neutral-200 rounded-xl p-5 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               >
                 <div>
-                  <h3 className="font-semibold text-neutral-900 text-lg">{report.title || "Unbenannte Dokumentation"}</h3>
-                  <p className="text-neutral-500 text-sm mt-1">{new Date(report.date).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  <div className="flex items-center gap-3 mb-1">
+                    <h3 className="font-semibold text-neutral-900 text-lg">{report.title || "Unbenannte Dokumentation"}</h3>
+                    {report.status === 'analyzing' && (
+                      <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Analyse läuft
+                      </span>
+                    )}
+                    {report.status === 'error' && (
+                      <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                        Fehler bei Analyse
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-neutral-500 text-sm">{new Date(report.date).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
                   <p className="text-neutral-600 text-sm mt-2 line-clamp-2">{report.summary}</p>
                 </div>
                 <div className="flex items-center gap-2 text-blue-600 text-sm font-medium whitespace-nowrap bg-blue-50 px-3 py-1.5 rounded-lg">

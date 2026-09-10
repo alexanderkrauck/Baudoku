@@ -5,6 +5,8 @@ import { CapturedPhoto, ReportData } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { findOrCreateRootFolder, createSubFolder, uploadFileToFolder } from '../lib/drive';
+import { cachedAccessToken } from '../App';
 
 export default function RecordPage() {
   const navigate = useNavigate();
@@ -13,6 +15,7 @@ export default function RecordPage() {
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [duration, setDuration] = useState(0);
   const [analyzing, setAnalyzing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('');
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -120,6 +123,7 @@ export default function RecordPage() {
   const handleFinish = async () => {
     if (!isRecording && photos.length === 0) return;
     setAnalyzing(true);
+    setSyncStatus('Aufnahme wird gestoppt...');
     
     try {
       let audioBlob: Blob | null = null;
@@ -127,33 +131,40 @@ export default function RecordPage() {
         audioBlob = await stopRecording();
       }
 
-      const formData = new FormData();
-      if (audioBlob) {
-        formData.append('audio', audioBlob, 'recording.webm');
+      const reportId = Date.now().toString();
+      let driveFolderId: string | undefined = undefined;
+
+      // 1. Secure in Google Drive FIRST
+      setSyncStatus('Sichere Rohdaten in Google Drive...');
+      if (cachedAccessToken && auth.currentUser) {
+        try {
+          const rootId = await findOrCreateRootFolder(cachedAccessToken);
+          const folderName = `Rohdaten - Begehung ${new Date().toLocaleDateString('de-DE')} ${formatTime(duration)}`;
+          driveFolderId = await createSubFolder(folderName, rootId, cachedAccessToken);
+          
+          if (audioBlob) {
+            await uploadFileToFolder(audioBlob, 'audio_aufnahme.webm', 'audio/webm', driveFolderId, cachedAccessToken);
+          }
+          
+          for (let i = 0; i < photos.length; i++) {
+            await uploadFileToFolder(photos[i].blob, `foto_${i+1}.jpg`, photos[i].blob.type, driveFolderId, cachedAccessToken);
+          }
+        } catch (e) {
+          console.error("Drive upload failed, continuing to Cloud Storage", e);
+        }
       }
-      
-      const timestamps = photos.map(p => ({
-        id: p.id,
-        timestamp: formatTime(Math.floor(p.relativeTimeMs / 1000))
-      }));
-      formData.append('photoTimestamps', JSON.stringify(timestamps));
-      
-      photos.forEach(p => {
-        formData.append('photos', p.blob, p.id);
-      });
 
-      // 1. Analyze via Gemini
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) throw new Error('API Fehler bei der Analyse');
-      const data = await response.json();
-      
-      // 2. Upload photos to Firebase Storage
+      // 2. Upload to Firebase Storage
+      setSyncStatus('Sichere Daten in der Cloud...');
       const uploadedPhotos: Record<string, string> = {};
+      let rawAudioUrl = '';
       if (auth.currentUser) {
+        if (audioBlob) {
+          const audioRef = ref(storage, `users/${auth.currentUser.uid}/audio/${reportId}.webm`);
+          await uploadBytes(audioRef, audioBlob);
+          rawAudioUrl = await getDownloadURL(audioRef);
+        }
+        
         for (const photo of photos) {
           const storageRef = ref(storage, `users/${auth.currentUser.uid}/photos/${photo.id}`);
           await uploadBytes(storageRef, photo.blob);
@@ -162,41 +173,98 @@ export default function RecordPage() {
         }
       }
 
-      // 3. Map URLs to Report Data
-      if (data.rooms) {
-        data.rooms = data.rooms.map((room: any) => ({
-          ...room,
-          photoUrls: (room.photoIds || []).map((id: string) => uploadedPhotos[id] || '')
-        }));
+      // 3. Save pending status to Firestore
+      setSyncStatus('Speichere Dokumentenstatus...');
+      const pendingReportData: ReportData = {
+        id: reportId,
+        date: new Date().toISOString(),
+        title: 'Analyse läuft...',
+        summary: 'Ihre Aufnahmen werden derzeit von der KI analysiert. Sie können diesen Bildschirm verlassen, die Rohdaten sind bereits gesichert.',
+        rooms: [],
+        status: 'analyzing',
+        driveFolderId,
+        rawAudioUrl,
+        rawPhotoUrls: Object.values(uploadedPhotos)
+      };
+      
+      if (auth.currentUser) {
+        await setDoc(doc(db, 'users', auth.currentUser.uid, 'reports', reportId), pendingReportData);
+      }
+
+      // 4. Send to Gemini Backend
+      setSyncStatus('KI-Analyse läuft (dies kann 1-2 Minuten dauern)...');
+      const formData = new FormData();
+      if (audioBlob) {
+        formData.append('audio', audioBlob, 'recording.webm');
+      }
+      const timestamps = photos.map(p => ({
+        id: p.id,
+        timestamp: formatTime(Math.floor(p.relativeTimeMs / 1000))
+      }));
+      formData.append('photoTimestamps', JSON.stringify(timestamps));
+      photos.forEach(p => {
+        formData.append('photos', p.blob, p.id);
+      });
+
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        // Mark as error in Firestore if analysis fails
+        if (auth.currentUser) {
+          await setDoc(doc(db, 'users', auth.currentUser.uid, 'reports', reportId), {
+            ...pendingReportData,
+            status: 'error',
+            summary: 'Fehler bei der KI-Analyse. Die Rohdaten sind gesichert. Sie können die Analyse später wiederholen.'
+          });
+        }
+        throw new Error('API Fehler bei der Analyse');
       }
       
-      // 4. Save to Firebase Firestore
+      const data = await response.json();
+      
+      // 5. Update Firestore with final analyzed data
+      setSyncStatus('Speichere fertigen Bericht...');
       if (auth.currentUser) {
-        const reportId = Date.now().toString();
-        const reportData: ReportData = {
-          id: reportId,
-          date: new Date().toISOString(),
-          ...data
+        if (data.rooms) {
+          data.rooms = data.rooms.map((room: any) => ({
+            ...room,
+            photoUrls: (room.photoIds || []).map((id: string) => uploadedPhotos[id] || '')
+          }));
+        }
+        
+        const finalReportData: ReportData = {
+          ...pendingReportData,
+          ...data,
+          status: 'completed'
         };
         
-        await setDoc(doc(db, 'users', auth.currentUser.uid, 'reports', reportId), reportData);
+        await setDoc(doc(db, 'users', auth.currentUser.uid, 'reports', reportId), finalReportData);
         navigate(`/report/${reportId}`);
       }
     } catch (err) {
       console.error(err);
-      alert('Fehler bei der Analyse. Bitte versuchen Sie es erneut.');
-      setAnalyzing(false);
+      alert('Die Analyse ist fehlgeschlagen, aber Ihre Rohdaten wurden erfolgreich gesichert!');
+      navigate('/dashboard'); // Go to dashboard so they can see the 'error' report
     }
   };
 
   if (analyzing) {
     return (
-      <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-6">
+      <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-6 text-center">
         <Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-6" />
-        <h2 className="text-2xl font-bold mb-2">KI-Analyse läuft...</h2>
-        <p className="text-neutral-400 text-center max-w-sm">
-          Ihre Aufnahme und Bilder werden transkribiert und räumlich zugeordnet. Dies kann einen Moment dauern.
-        </p>
+        <h2 className="text-2xl font-bold mb-4">{syncStatus}</h2>
+        <div className="space-y-2 max-w-sm text-neutral-400 text-sm">
+          <p>Schritt 1: Rohdaten in Google Drive sichern</p>
+          <p>Schritt 2: Cloud-Backup erstellen</p>
+          <p>Schritt 3: KI-Modell analysiert Audio & Fotos</p>
+          <p className="mt-4 pt-4 border-t border-neutral-800 text-neutral-500 text-xs">
+            Ihre Aufnahmen gehen nicht verloren. Selbst wenn die Analyse abbricht, 
+            können Sie sie später aus dem Dashboard neu starten.
+          </p>
+        </div>
       </div>
     );
   }

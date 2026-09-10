@@ -12,6 +12,10 @@ export interface ReportData {
   title: string;
   summary: string;
   rooms: RoomReport[];
+  status?: 'pending' | 'analyzing' | 'completed' | 'error';
+  rawAudioUrl?: string;
+  rawPhotoUrls?: string[];
+  driveFolderId?: string;
 }
 
 export interface CapturedPhoto {

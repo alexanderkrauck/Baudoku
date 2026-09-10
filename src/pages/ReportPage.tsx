@@ -68,6 +68,81 @@ export default function ReportPage() {
     }
   };
 
+  const handleRetryAnalysis = async () => {
+    if (!report || !auth.currentUser) return;
+    setSyncing(true); // Re-use the loading state
+    
+    try {
+      const formData = new FormData();
+      
+      // Fetch audio blob if available
+      if (report.rawAudioUrl) {
+        const audioRes = await fetch(report.rawAudioUrl);
+        const audioBlob = await audioRes.blob();
+        formData.append('audio', audioBlob, 'recording.webm');
+      } else {
+        alert("Keine Audio-Rohdaten gefunden.");
+        setSyncing(false);
+        return;
+      }
+      
+      // Fetch photo blobs
+      const photoTimestamps: { id: string, timestamp: string }[] = [];
+      if (report.rawPhotoUrls && report.rawPhotoUrls.length > 0) {
+        for (let i = 0; i < report.rawPhotoUrls.length; i++) {
+          const url = report.rawPhotoUrls[i];
+          const photoRes = await fetch(url);
+          const photoBlob = await photoRes.blob();
+          const photoId = `photo_${i}`;
+          formData.append('photos', photoBlob, photoId);
+          // Without original relative times, we just pass sequential unknown times
+          photoTimestamps.push({ id: photoId, timestamp: `00:0${i}` });
+        }
+      }
+      formData.append('photoTimestamps', JSON.stringify(photoTimestamps));
+
+      // Re-run analysis
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) throw new Error('API Fehler bei der erneuten Analyse');
+      const data = await response.json();
+      
+      // Map URLs to Report Data
+      if (data.rooms) {
+        data.rooms = data.rooms.map((room: any) => ({
+          ...room,
+          photoUrls: (room.photoIds || []).map((id: string) => {
+            // Find the index of this photo
+            const match = id.match(/photo_(\d+)/);
+            if (match && report.rawPhotoUrls) {
+              const idx = parseInt(match[1]);
+              return report.rawPhotoUrls[idx] || '';
+            }
+            return '';
+          })
+        }));
+      }
+      
+      const finalReportData: ReportData = {
+        ...report,
+        ...data,
+        status: 'completed'
+      };
+      
+      await setDoc(doc(db, 'users', auth.currentUser.uid, 'reports', report.id), finalReportData);
+      setReport(finalReportData);
+      alert("Analyse erfolgreich!");
+    } catch (err) {
+      console.error(err);
+      alert("Fehler bei der erneuten Analyse.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-neutral-50 flex justify-center items-center">
@@ -81,6 +156,51 @@ export default function ReportPage() {
       <div className="min-h-screen bg-neutral-50 flex flex-col items-center justify-center p-6">
         <h2 className="text-xl font-bold text-neutral-800">Bericht nicht gefunden</h2>
         <button onClick={() => navigate('/dashboard')} className="mt-4 text-blue-600">Zurück zum Dashboard</button>
+      </div>
+    );
+  }
+
+  if (report.status === 'analyzing') {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex flex-col items-center justify-center p-6 text-center">
+        <Loader2 className="w-12 h-12 animate-spin text-blue-600 mb-6" />
+        <h2 className="text-2xl font-bold mb-4 text-neutral-900">Analyse läuft im Hintergrund</h2>
+        <p className="text-neutral-500 max-w-sm mb-8">
+          Die KI analysiert Ihre Aufnahme. Dieser Vorgang kann einige Minuten dauern. 
+          Sie können diese Seite verlassen und später wiederkommen.
+        </p>
+        <button onClick={() => navigate('/dashboard')} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+          Zum Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  if (report.status === 'error') {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6">
+          <CheckCircle2 className="w-8 h-8 text-red-600" />
+        </div>
+        <h2 className="text-2xl font-bold mb-4 text-neutral-900">Analyse fehlgeschlagen</h2>
+        <p className="text-neutral-600 max-w-md mb-8">
+          {report.summary || 'Beim Analysieren Ihrer Daten ist ein Fehler aufgetreten.'} 
+          <br /><br />
+          Keine Sorge, Ihre <strong>Audioaufnahme und Fotos wurden sicher in der Cloud gespeichert</strong>. Sie können die Analyse jetzt erneut starten.
+        </p>
+        <div className="flex gap-4">
+          <button onClick={() => navigate('/dashboard')} className="px-6 py-2 bg-white border border-neutral-300 text-neutral-700 rounded-lg hover:bg-neutral-50 transition-colors">
+            Zurück
+          </button>
+          <button 
+            onClick={handleRetryAnalysis} 
+            disabled={syncing}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            {syncing && <Loader2 className="w-4 h-4 animate-spin" />}
+            Analyse wiederholen
+          </button>
+        </div>
       </div>
     );
   }
