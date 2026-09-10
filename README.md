@@ -89,7 +89,7 @@ Configure the deployment hostname in Firebase Authentication's authorized domain
 
 ## Firebase configuration and rules
 
-The checked-in `firebase-applet-config.json` is public browser configuration, not an admin credential. The app uses the `(default)` Firestore database unless `VITE_FIRESTORE_DATABASE_ID` is provided at build time or `firestoreDatabaseId` is present in that JSON. Ensure the selected database actually exists. The index is stored at `users/{firebaseUid}/reports/{reportId}`.
+The checked-in `firebase-applet-config.json` is public browser configuration, not an admin credential. The app uses the existing named Firestore database `ai-studio-drivesyncnotes-8da1f6ea-9bd9-4a7e-b5b0-39b87715e2d0`, selected by `firestoreDatabaseId` in that JSON. `VITE_FIRESTORE_DATABASE_ID`, when provided at build time, overrides this value. This project has no `(default)` database. Ensure the selected database actually exists. The index is stored at `users/{firebaseUid}/reports/{reportId}`.
 
 Deploy the included owner-only rules to your Firebase project (requires an authenticated Firebase CLI):
 
@@ -97,7 +97,7 @@ Deploy the included owner-only rules to your Firebase project (requires an authe
 firebase deploy --only firestore:rules --project gen-lang-client-0187125016
 ```
 
-`firebase.json` targets the default database. For an existing named database, configure its exact name before deployment:
+`firebase.json` targets the same named database. When adapting this app to another project, configure its exact database name before deployment:
 
 ```json
 {
