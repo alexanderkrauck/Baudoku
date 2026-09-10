@@ -12,16 +12,16 @@ fi
 previous=$(gcloud run services describe "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format=json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(",".join(t["revisionName"]+"="+str(t["percent"]) for t in s["status"]["traffic"] if t.get("percent",0)>0))')
 suffix="gh-${GITHUB_SHA:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 
-# Keep the existing service URL, identity, env/secrets, IAM, limits and integrations.
-# AI Studio used a source overlay; --clear-base-image switches this revision to
-# a self-contained image. The old live revision keeps serving until smoke passes.
-gcloud run deploy "$CLOUD_RUN_SERVICE" \
-  --project="$GCP_PROJECT_ID" --region="$GCP_REGION" \
-  --image="$DEPLOY_IMAGE" --clear-base-image \
-  --command=node --args=dist/server.cjs \
-  --update-env-vars=NODE_ENV=production \
-  --revision-suffix="$suffix" --tag=candidate --no-traffic --quiet
+# Construct a no-traffic revision atomically: AI Studio's source-overlay
+# annotation must be removed together with its base image and runtime class.
+# The transient service spec contains existing env values; never log or upload it.
 revision="$CLOUD_RUN_SERVICE-$suffix"
+umask 077
+spec=$(mktemp)
+trap 'rm -f "$spec"' EXIT
+gcloud run services describe "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format=json |
+  python3 scripts/prepare-cloud-run.py "$DEPLOY_IMAGE" "$revision" > "$spec"
+gcloud run services replace "$spec" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --quiet
 candidate=$(gcloud run services describe "$CLOUD_RUN_SERVICE" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format=json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(next(t["url"] for t in s["status"]["traffic"] if t.get("tag")=="candidate"))')
 node scripts/smoke-deployment.mjs "$candidate"
 

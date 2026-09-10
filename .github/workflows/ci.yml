@@ -93,6 +93,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Verify safe Cloud Run candidate configuration
+        run: python3 -m unittest discover -s tests -p 'test_deploy_config.py'
       - name: Build and smoke-test the production container
         run: |
           docker build --tag baudoku:check .

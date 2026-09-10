@@ -60,3 +60,11 @@ Built on Gemini commit `6d17259`; its model selection and dependency files are u
 GitHub run 34462619595 failed during setup-node because package-lock.json had been removed. Restored the previously validated npm lock (package.json had not changed) and regenerated bun.lock from it with Bun 1.3.10. Both include the qs override.
 
 A clean npm ci and an isolated clean bun install --frozen-lockfile each passed TypeScript, all 81 tests, production build, and all five PWA/production-server checks. CI now runs both installation paths on Linux and rejects lockfile changes during checks. AI Studio's dev command, media plugin, frame permissions, DISABLE_HMR handling, Node production server and Gemini model are unchanged. No live AI Studio deployment was performed.
+
+## Protected release and Cloud Run setup (2026-09-10)
+
+- GitHub default branch is development. Active ruleset 22758062 protects main with required PRs, strict GitHub Actions checks (verify npm/bun, container, promotion-policy), no force pushes/deletion, and no bypass actors. Ruleset 22758063 preserves development history.
+- Development and PR checks passed before PRs 1 and 2 merged; the initial PR was observed BLOCKED until checks completed. A test timing race exposed by the main gate was fixed by giving upload validation cases separate routers. The suite now contains 82 tests.
+- Production authentication uses repository/owner-ID-scoped Workload Identity Federation, limited to the protected main reusable deployment workflow. GitHub successfully authenticated and published an image without a service-account key.
+- Google Cloud identified an AI Studio source-overlay annotation incompatible with ordinary image deployment. The candidate-preparation helper removes that overlay atomically, preserves env/secret references and settings, and freezes existing live traffic. The real service specification passed gcloud services replace --dry-run.
+- Nine Python regression tests cover service configuration preservation, traffic safety, and invalid configurations. CI runs these before the production container smoke test. Smoke checks have per-request and overall deadlines.
