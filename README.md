@@ -43,7 +43,7 @@ Configured target:
 | Google Cloud project | `gen-lang-client-0187125016` |
 | Region | `europe-west2` |
 | Existing Cloud Run service | `drive-sync-notes` |
-| Production URL | [Open Baudoku](https://drive-sync-notes-gma5yake7q-nw.a.run.app) |
+| Production URL | [Open Baudoku](https://baudoku.ai.studio/) |
 | Artifact Registry repository | `baudoku` |
 | GitHub environment | `production`, restricted to `main` |
 | Deployment identity | `baudoku-github-deploy@gen-lang-client-0187125016.iam.gserviceaccount.com` |
