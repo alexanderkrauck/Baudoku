@@ -68,3 +68,8 @@ A clean npm ci and an isolated clean bun install --frozen-lockfile each passed T
 - Production authentication uses repository/owner-ID-scoped Workload Identity Federation, limited to the protected main reusable deployment workflow. GitHub successfully authenticated and published an image without a service-account key.
 - Google Cloud identified an AI Studio source-overlay annotation incompatible with ordinary image deployment. The candidate-preparation helper removes that overlay atomically, preserves env/secret references and settings, and freezes existing live traffic. The real service specification passed gcloud services replace --dry-run.
 - Nine Python regression tests cover service configuration preservation, traffic safety, and invalid configurations. CI runs these before the production container smoke test. Smoke checks have per-request and overall deadlines.
+
+- The complete automatic deployment succeeded in [Checks run 34467950362, attempt 2](https://github.com/alexanderkrauck/Baudoku/actions/runs/34467950362). Revision `drive-sync-notes-gh-7d4526609891-34467950362-2` serves 100% of live traffic.
+- Both candidate and live health/Gemini-configuration/SPA/PWA/private-bundle smoke tests passed. An independent post-deploy comparison confirmed all existing environment values, runtime identity, resource limits and the public URL were preserved.
+- The deployer's custom project role grants only `resourcemanager.projects.get` for gcloud's project lookup; service mutation remains scoped to this Cloud Run service.
+- The successful release went through protected development-to-main PRs. The local checkout and GitHub default branch are development; main rules remain active with no bypass actors.
