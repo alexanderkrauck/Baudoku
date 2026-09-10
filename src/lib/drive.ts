@@ -203,6 +203,15 @@ export async function listDriveReports(
               typeof room.name === "string" &&
               typeof room.summary === "string" &&
               typeof room.transcription === "string" &&
+              (room.defects === undefined ||
+                (Array.isArray(room.defects) &&
+                  room.defects.every(
+                    (d: any) =>
+                      d &&
+                      typeof d.id === "string" &&
+                      typeof d.description === "string" &&
+                      ["open", "done"].includes(d.status),
+                  ))) &&
               (!room.tags ||
                 (Array.isArray(room.tags) &&
                   room.tags.every(

@@ -1,4 +1,10 @@
+export interface Defect {
+  id: string;
+  description: string;
+  status: "open" | "done";
+}
 export interface RoomReport {
+  defects?: Defect[];
   name: string;
   transcription: string;
   summary: string;

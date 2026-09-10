@@ -20,9 +20,24 @@ export const reportSchema = {
       type: "array",
       items: {
         type: "object",
-        required: ["name", "summary", "transcription", "photoIds", "tags"],
+        required: [
+          "name",
+          "summary",
+          "transcription",
+          "photoIds",
+          "tags",
+          "defects",
+        ],
         properties: {
           name: { type: "string" },
+          defects: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["description"],
+              properties: { description: { type: "string" } },
+            },
+          },
           summary: { type: "string" },
           transcription: { type: "string" },
           photoIds: { type: "array", items: { type: "string" } },
@@ -86,12 +101,30 @@ export function validateAnalysis(
       r.endTimeMs >= r.startTimeMs
         ? { startTimeMs: r.startTimeMs, endTimeMs: r.endTimeMs }
         : {};
+    if (
+      r.defects !== undefined &&
+      (!Array.isArray(r.defects) ||
+        r.defects.some(
+          (d: any) =>
+            !d || typeof d.description !== "string" || !d.description.trim(),
+        ))
+    )
+      throw new Error("Die KI-Antwort enthält ungültige Mängel.");
     return {
       name: r.name,
       summary: r.summary,
       transcription: r.transcription,
       photoIds: ids,
       tags,
+      ...(r.defects !== undefined
+        ? {
+            defects: r.defects.map((d: any, i: number) => ({
+              id: `defect-${i + 1}`,
+              description: d.description.trim(),
+              status: "open" as const,
+            })),
+          }
+        : {}),
       ...timeRange,
     };
   });

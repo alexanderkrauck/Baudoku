@@ -109,6 +109,10 @@ Build with `VITE_FIRESTORE_DATABASE_ID=YOUR_DATABASE_ID` so the client and rules
 
 ## Drive and data recovery
 
+### Individual defect status
+
+New analyses list individual defects within each room. Each defect starts as "Offen"; users can select "Erledigt" directly in the walkthrough report. This is independent of the report's analysis status and room tags. Status changes outside edit mode save immediately through the local/Firebase report store. In edit mode they are saved together with the other edits. Use "In Drive speichern" to update the Markdown and JSON copies; printing includes the current defect statuses. Existing reports without individual defects remain unchanged: use "Mangel hinzufügen" to enter their individual items, then save. No automatic reinterpretation of old room summaries is performed.
+
 AI requests resize photo copies to at most 1600 pixels and stay below Cloud Run’s 32 MiB HTTP/1 request limit. Original photos are uploaded to Drive unchanged.
 
 Drive contains the audio, photos, structured JSON report data, and a readable Markdown report (`bericht.md`). The Markdown export includes room summaries, transcripts, predefined tags, and private Drive media links. Edits update the existing export files on synchronization. Each walkthrough has a dedicated subfolder under the selected destination. Enable the Google Drive API for the OAuth project. Folder selection with the Google Picker additionally requires the Google Picker API, a browser API key (`VITE_GOOGLE_API_KEY`), and the Cloud project number (`VITE_GOOGLE_PROJECT_NUMBER`). These variables optionally override `apiKey` and `messagingSenderId` from the Firebase configuration. Restrict that browser key to your deployment origins and the required Google APIs.

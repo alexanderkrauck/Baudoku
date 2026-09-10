@@ -72,6 +72,20 @@ export function reportToMarkdown(report: ReportData): string {
     lines.push("", `## ${index + 1}. ${heading(room.name)}`);
     if (room.tags?.length)
       lines.push("", `Tags: ${room.tags.map(heading).join(", ")}`);
+    if (room.defects?.length) {
+      lines.push(
+        "",
+        "### Mängelstatus",
+        "",
+        "| Mangel | Status |",
+        "| --- | --- |",
+      );
+      room.defects.forEach((d) =>
+        lines.push(
+          `| ${heading(d.description)} | ${d.status === "done" ? "Erledigt" : "Offen"} |`,
+        ),
+      );
+    }
     if (Number.isFinite(room.startTimeMs) && Number.isFinite(room.endTimeMs))
       lines.push(
         "",

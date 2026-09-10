@@ -110,13 +110,25 @@ describe("Drive Markdown and JSON synchronization", () => {
     );
   });
   it("writes Markdown first and includes its ID in the JSON export", async () => {
-    const result = await syncReport(report(), "drive-token");
+    const value = report();
+    value.rooms[0].defects = [
+      { id: "one", description: "Riss", status: "done" },
+      { id: "two", description: "Tür", status: "open" },
+    ];
+    const result = await syncReport(value, "drive-token");
     expect(mocks.upload.mock.calls.map((call) => call[1])).toEqual([
       "bericht.md",
       "bericht_daten.json",
     ]);
     expect(await mocks.upload.mock.calls[0][0].text()).toContain("# Begehung");
     const json = JSON.parse(await mocks.upload.mock.calls[1][0].text());
+    expect(json.rooms[0].defects).toEqual(value.rooms[0].defects);
+    expect(await mocks.upload.mock.calls[0][0].text()).toContain(
+      "| Riss | Erledigt |",
+    );
+    expect(mocks.save.mock.calls[0][0].rooms[0].defects).toEqual(
+      value.rooms[0].defects,
+    );
     expect(json.driveMarkdownId).toBe("markdown-1");
     expect(json.driveSyncedAt).toBeDefined();
     expect(result.report).toMatchObject({

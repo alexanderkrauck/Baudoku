@@ -1616,3 +1616,48 @@ textarea {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+.defect-list {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid #dce4de;
+  border-radius: 12px;
+}
+.defect-list h3 {
+  margin: 0 0 12px;
+}
+.defect-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #dce4de;
+  margin-bottom: 12px;
+}
+.defect-item > :first-child {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.defect-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.defect-status select {
+  width: auto;
+  min-height: 44px;
+}
+.defect-print-status {
+  display: none;
+}
+@media print {
+  .defect-print-status {
+    display: inline;
+    font-weight: bold;
+  }
+  .defect-list {
+    break-inside: avoid;
+  }
+}
