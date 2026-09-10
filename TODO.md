@@ -29,3 +29,10 @@ Validation details and live-service boundaries are recorded in [docs/VALIDATION.
 - [x] Request missing authorization and verify Drive access before online recording.
 - [x] Remove implicit Google popup from saving; expose expired authorization separately.
 - [x] Verify regression tests and browser flow, commit and push.
+
+## Restore GitHub checks and installer compatibility
+
+- [x] Identify missing npm lockfile in the failed GitHub run.
+- [x] Restore npm resolution and regenerate compatible Bun lockfile.
+- [x] Run CI with both frozen installers and preserve AI Studio runtime configuration.
+- [x] Validate clean installs, push, and verify successful GitHub checks.

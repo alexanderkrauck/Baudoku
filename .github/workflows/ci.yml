@@ -6,13 +6,25 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        installer: [npm, bun]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.installer == 'bun'
+        with:
+          bun-version: 1.3.10
       - run: npm ci
+        if: matrix.installer == 'npm'
+      - run: bun install --frozen-lockfile
+        if: matrix.installer == 'bun'
       - run: npm run lint
       - run: npm test
       - run: npm run test:pwa
+      - run: git diff --exit-code -- package.json package-lock.json bun.lock

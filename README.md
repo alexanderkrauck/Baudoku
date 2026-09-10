@@ -4,7 +4,7 @@ German-language construction walkthroughs: record audio, capture photos, generat
 
 ## Run locally
 
-Use Node.js 22 or newer and npm. `package-lock.json` is the authoritative dependency lockfile. The `qs` override selects the patched 6.16 release while Express 4 pins an older minor range.
+Use Node.js 22 or newer and npm. `package-lock.json` is the authoritative dependency lockfile. The synchronized `bun.lock` supports Bun-based installs, including AI Studio environments. CI checks clean, frozen installs with both npm and Bun, then runs the same Node.js build and tests. After dependency updates, regenerate `package-lock.json` with npm, remove the old `bun.lock`, and run `bun install --lockfile-only` to migrate the npm resolution; commit both lockfiles. The `qs` override selects the patched 6.16 release while Express 4 pins an older minor range.
 
 ```sh
 npm ci
@@ -27,7 +27,7 @@ npm start
 
 The app requests microphone/camera access in `metadata.json`, as required by the [AI Studio embedding permissions](https://ai.google.dev/gemini-api/docs/aistudio-build-mode). Keep the existing Express + Vite deployment model; the AI Studio media plugin and `DISABLE_HMR` behavior remain in `vite.config.ts`. Set the build command to `npm run build`, the run command to `npm start`, and `NODE_ENV=production`. The server binds to `0.0.0.0` and uses the platform's `PORT` (3000 by default).
 
-Configure `GEMINI_API_KEY` as a server secret. `GEMINI_MODEL` defaults to `gemini-2.5-flash` and can be changed to a model available to your project. The analysis endpoint verifies Firebase ID tokens, so `FIREBASE_PROJECT_ID`, if set, must match the frontend's `firebase-applet-config.json` project. `GET /api/health` reports whether an analysis key is configured without returning its value.
+Configure `GEMINI_API_KEY` as a server secret. `GEMINI_MODEL` defaults to `gemini-3.1-pro-preview` and can be changed to a model available to your project. The analysis endpoint verifies Firebase ID tokens, so `FIREBASE_PROJECT_ID`, if set, must match the frontend's `firebase-applet-config.json` project. `GET /api/health` reports whether an analysis key is configured without returning its value.
 
 Configure the deployment hostname in Firebase Authentication's authorized domains. Enable Google as a Firebase sign-in provider. Configure the matching Google OAuth web client and its authorized JavaScript origins. HTTPS is required on deployed sites for microphone capture and PWA installation. Test sign-in and installation at the deployed URL outside the AI Studio embedded preview; popup and install capabilities depend on the containing browser.
 

@@ -54,3 +54,9 @@ Built on Gemini commit `6d17259`; its model selection and dependency files are u
 - Browser exercises with synthetic credentials and media verify pre-capture authorization, reload reuse, denial before any microphone request, explicit expiry state, and controls fitting 320×568. A failed network preflight keeps the microphone stopped until the user chooses local capture.
 - Access-token expiry still follows Google's browser OAuth model; this does not implement server-side refresh-token storage or claim permanent authorization. Live Google consent remains dependent on the deployed project's configuration.
 - Re-ran the save/analysis/Drive-export flow through the new primary action with mocked services; it completed without an OAuth popup.
+
+## CI lockfile compatibility follow-up (2026-09-10)
+
+GitHub run 34462619595 failed during setup-node because package-lock.json had been removed. Restored the previously validated npm lock (package.json had not changed) and regenerated bun.lock from it with Bun 1.3.10. Both include the qs override.
+
+A clean npm ci and an isolated clean bun install --frozen-lockfile each passed TypeScript, all 81 tests, production build, and all five PWA/production-server checks. CI now runs both installation paths on Linux and rejects lockfile changes during checks. AI Studio's dev command, media plugin, frame permissions, DISABLE_HMR handling, Node production server and Gemini model are unchanged. No live AI Studio deployment was performed.
