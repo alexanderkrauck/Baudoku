@@ -44,5 +44,5 @@ Validation details and live-service boundaries are recorded in [docs/VALIDATION.
 - [x] Add production container checks, deployment smoke tests and traffic rollback.
 - [x] Add exact-development-commit promotion checks and GitHub main protection.
 - [x] Document development-first work and production deployment in README.
-- [ ] Exercise development checks, protected PR merge and real automatic deployment.
-- [ ] Leave the local checkout and GitHub default branch on development.
+- [x] Exercise development checks, protected PR merge and real automatic deployment.
+- [x] Leave the local checkout and GitHub default branch on development.
