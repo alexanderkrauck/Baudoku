@@ -145,9 +145,13 @@ describe("authenticated analysis endpoint", () => {
   it("rejects missing audio and cleans uploaded photos", async () => {
     expect((await send(body({ audio: false }))).status).toBe(400);
   });
-  it("enforces file size and MIME restrictions", async () => {
-    expect((await send(body({ size: 1025 }))).status).toBe(413);
-    expect((await send(body({ mime: "text/html" }))).status).toBe(415);
+  it.each([
+    { options: { size: 1025 }, status: 413 },
+    { options: { mime: "text/html" }, status: 415 },
+  ])("enforces upload restrictions ($status)", async ({ options, status }) => {
+    // Each case has its own router. A response may arrive before asynchronous
+    // cleanup releases the per-user concurrency guard.
+    expect((await send(body(options))).status).toBe(status);
     expect(client.files.upload).not.toHaveBeenCalled();
   });
   it("accepts the full supported photo count and rejects one extra", async () => {
