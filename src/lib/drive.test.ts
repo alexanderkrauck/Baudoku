@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("./session", () => ({ rememberToken: vi.fn() }));
-import { getDriveFolder, listDriveReports } from "./drive";
+import { getDriveFolder, listDriveReports, verifyDriveAccess } from "./drive";
 import { rememberToken } from "./session";
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -13,16 +13,14 @@ describe("Drive storage", () => {
   it("rejects a folder without write access", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          response({
-            id: "folder",
-            name: "Shared",
-            mimeType: "application/vnd.google-apps.folder",
-            capabilities: { canAddChildren: false },
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        response({
+          id: "folder",
+          name: "Shared",
+          mimeType: "application/vnd.google-apps.folder",
+          capabilities: { canAddChildren: false },
+        }),
+      ),
     );
     await expect(getDriveFolder("folder", "token")).rejects.toThrow(
       "keine Dateien speichern",
@@ -99,5 +97,58 @@ describe("Drive storage", () => {
       }),
     ]);
     expect(result.warnings).toHaveLength(1);
+  });
+});
+
+describe("Drive permission preflight", () => {
+  it("checks permissions without creating cloud files or requesting file data", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(response({ kind: "drive#fileList" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    try {
+      await verifyDriveAccess("token");
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+        "https://www.googleapis.com/drive/v3/files?pageSize=1&fields=kind",
+        {
+          headers: { Authorization: "Bearer token" },
+          signal: expect.any(AbortSignal),
+        },
+      );
+      expect(timeout).toHaveBeenCalledWith(10000);
+      expect(rememberToken).not.toHaveBeenCalled();
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
+  it.each([401, 403])(
+    "clears unusable credentials on HTTP %s before recording",
+    async (status) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, status)));
+      await expect(verifyDriveAccess("token")).rejects.toThrow(
+        "Zugriff erlauben",
+      );
+      expect(rememberToken).toHaveBeenCalledExactlyOnceWith(undefined);
+    },
+  );
+
+  it.each([429, 500, 503])(
+    "keeps authorization on a transient HTTP %s failure",
+    async (status) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, status)));
+      await expect(verifyDriveAccess("token")).rejects.toThrow(
+        "erneut versuchen",
+      );
+      expect(rememberToken).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps authorization after an offline request or timeout", async () => {
+    const unavailable = new TypeError("Failed to fetch");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(unavailable));
+    await expect(verifyDriveAccess("token")).rejects.toBe(unavailable);
+    expect(rememberToken).not.toHaveBeenCalled();
   });
 });

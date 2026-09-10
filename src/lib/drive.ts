@@ -1,4 +1,26 @@
 import { rememberToken } from "./session";
+// A cached token alone does not prove the Drive scope was granted. Check it
+// before capture without creating folders or reading filenames/media.
+export async function verifyDriveAccess(token: string): Promise<void> {
+  const response = await fetch(
+    "https://www.googleapis.com/drive/v3/files?pageSize=1&fields=kind",
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    },
+  );
+  if (response.ok) return;
+  if (response.status === 401 || response.status === 403) {
+    rememberToken(undefined);
+    throw new Error(
+      "Google Drive ist nicht freigegeben oder die Freigabe ist abgelaufen. Bitte Google Drive erneut verbinden und den Zugriff erlauben.",
+    );
+  }
+  throw new Error(
+    "Google Drive ist gerade nicht erreichbar. Bitte die Verbindung prüfen und erneut versuchen.",
+  );
+}
+
 async function request(url: string, token: string, init: RequestInit = {}) {
   const response = await fetch(url, {
     ...init,

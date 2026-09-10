@@ -22,3 +22,10 @@ Validation details and live-service boundaries are recorded in [docs/VALIDATION.
 - [x] Add wake lock, background flush, interruption handling, and in-app camera. (mobile_lifecycle)
 - [x] Verify small-phone/landscape layouts, offline capture, reload recovery, and storage retry.
 - [x] Commit and push the verified follow-up.
+
+## Drive authorization before capture
+
+- [x] Persist valid, account-scoped Drive authorization across reloads.
+- [x] Request missing authorization and verify Drive access before online recording.
+- [x] Remove implicit Google popup from saving; expose expired authorization separately.
+- [x] Verify regression tests and browser flow, commit and push.

@@ -31,6 +31,7 @@ import {
   appendRecordingChunk,
 } from "../lib/local";
 import { uid, saveReport } from "../lib/reports";
+import { verifyDriveAccess } from "../lib/drive";
 import { errorMessage, connectGoogle, driveToken } from "../lib/session";
 import { analyzeDraft, backupDraft, syncReport } from "../lib/workflow";
 import {
@@ -80,8 +81,22 @@ export default function RecordPage() {
     "settings" | "photos" | "options" | "leave" | null
   >(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [localStartOffered, setLocalStartOffered] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [folder, setFolder] = useState(savedDriveFolder);
+  const [, refreshDriveSession] = useState(0);
+  const driveReady = !!driveToken(state === "ready" ? 10 * 60 * 1000 : 0);
+  useEffect(() => {
+    const update = () => refreshDriveSession((n) => n + 1);
+    const timer = window.setInterval(update, 5000);
+    window.addEventListener("baudoku:drive-session", update);
+    window.addEventListener("focus", update);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("baudoku:drive-session", update);
+      window.removeEventListener("focus", update);
+    };
+  }, []);
   const saveButton = useRef<HTMLButtonElement>(null);
   const recording = state === "recording" || state === "paused";
   useEffect(() => {
@@ -265,13 +280,50 @@ export default function RecordPage() {
       }
     };
   }, []);
-  async function start() {
+  async function authorizeDrive() {
+    if (operation.current) return;
+    operation.current = true;
+    setError("");
+    setBusy("Google Drive freigeben …");
+    try {
+      const token = await connectGoogle();
+      await verifyDriveAccess(token);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      operation.current = false;
+      if (active.current) {
+        setBusy("");
+        refreshDriveSession((n) => n + 1);
+      }
+    }
+  }
+  async function start(localOnly = false) {
+    // Recheck at the actual click: the displayed token state may be a few seconds old.
+    if (!localOnly && navigator.onLine && !driveToken(10 * 60 * 1000)) {
+      await authorizeDrive();
+      return;
+    }
     if (operation.current) return;
     operation.current = true;
     let stream: MediaStream | undefined;
-    setBusy("Mikrofon vorbereiten …");
+    setBusy("Aufnahme vorbereiten …");
     setError("");
+    setLocalStartOffered(false);
     try {
+      if (!localOnly && navigator.onLine) {
+        const token = driveToken();
+        if (!token) throw new Error("Bitte zuerst Google Drive freigeben.");
+        setBusy("Drive-Berechtigung prüfen …");
+        try {
+          await verifyDriveAccess(token);
+        } catch (e) {
+          if (active.current && driveToken()) setLocalStartOffered(true);
+          throw e;
+        }
+      }
+      if (!active.current || uid() !== accountId) return;
+      setBusy("Mikrofon vorbereiten …");
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)
         throw new Error(
           "Aufnahme wird in diesem Browser nicht unterstützt. Bitte eine Audiodatei importieren oder einen aktuellen Browser über HTTPS verwenden.",
@@ -492,10 +544,16 @@ export default function RecordPage() {
     operation.current = true;
     setError("");
     setWarning("");
-    setBusy("Google Drive verbinden …");
+    setBusy("Speichern vorbereiten …");
     try {
-      // Invoke OAuth directly within the click gesture and lock out duplicate runs.
-      const token = driveToken() || (await connectGoogle());
+      // Saving never starts an unexpected OAuth popup.
+      const token = driveToken();
+      if (!token) {
+        refreshDriveSession((n) => n + 1);
+        throw new Error(
+          "Die Drive-Freigabe ist abgelaufen. Bitte zuerst Google Drive verbinden. Dein Entwurf bleibt erhalten.",
+        );
+      }
       if (!active.current || uid() !== accountId) return;
       setBusy("Entwurf lokal sichern …");
       await queue.current.catch(() => {});
@@ -857,13 +915,28 @@ export default function RecordPage() {
                 </>
               ) : state === "ready" ? (
                 <>
-                  <button className="walk-primary" onClick={start}>
+                  <button className="walk-primary" onClick={() => void start()}>
                     <Mic size={22} />
-                    Aufnahme starten
+                    {online && !driveReady
+                      ? "Google Drive freigeben"
+                      : "Aufnahme starten"}
                   </button>
+                  {localStartOffered && (
+                    <button
+                      className="walk-secondary"
+                      onClick={() => void start(true)}
+                    >
+                      Trotzdem lokal aufnehmen · später in Drive sichern
+                    </button>
+                  )}
                   <button
                     className="walk-secondary"
-                    onClick={() => audioInput.current?.click()}
+                    onClick={() => {
+                      if (navigator.onLine && !driveToken(10 * 60 * 1000))
+                        void authorizeDrive();
+                      else audioInput.current?.click();
+                    }}
+                    disabled={online && !driveReady}
                   >
                     <Upload size={16} />
                     Vorhandenes Audio importieren
@@ -871,10 +944,15 @@ export default function RecordPage() {
                 </>
               ) : (
                 <>
+                  {online && !driveReady && (
+                    <button className="walk-secondary" onClick={authorizeDrive}>
+                      Google Drive vor dem Speichern verbinden
+                    </button>
+                  )}
                   <button
                     ref={saveButton}
                     className="walk-primary"
-                    disabled={!online || !draft.audio?.size}
+                    disabled={!online || !driveReady || !draft.audio?.size}
                     onClick={() => process(true)}
                   >
                     <WandSparkles size={21} />
@@ -884,7 +962,9 @@ export default function RecordPage() {
                   <p className="walk-save-hint">
                     {!online
                       ? "Sobald du online bist, kannst du hier fortfahren."
-                      : "Originale sichern → KI-Bericht erstellen → fertig"}
+                      : !driveReady
+                        ? "Drive-Freigabe fehlt oder ist abgelaufen. Dein Entwurf bleibt lokal gesichert."
+                        : "Originale sichern → KI-Bericht erstellen → fertig"}
                   </p>
                 </>
               )}
@@ -902,6 +982,16 @@ export default function RecordPage() {
                   ) : (
                     "Erste Audiosicherung läuft …"
                   )
+                ) : state === "ready" ? (
+                  online ? (
+                    driveReady ? (
+                      "Drive verbunden · Aufnahme bereit"
+                    ) : (
+                      "Zuerst Drive freigeben, dann die Aufnahme starten."
+                    )
+                  ) : (
+                    "Offline aufnehmen · später mit Drive verbinden"
+                  )
                 ) : saved ? (
                   <>
                     <Check size={13} />
@@ -909,8 +999,12 @@ export default function RecordPage() {
                   </>
                 ) : draft.audio ? (
                   "Lokale Sicherung läuft …"
+                ) : online && !driveReady ? (
+                  "Zuerst Drive freigeben, dann die Aufnahme starten."
+                ) : online ? (
+                  "Drive verbunden · Aufnahme bereit"
                 ) : (
-                  "Audio & Fotos → Bericht in Google Drive"
+                  "Offline aufnehmen · später mit Drive verbinden"
                 )}
               </p>
             </footer>
@@ -1063,7 +1157,7 @@ export default function RecordPage() {
                     Audio herunterladen
                   </button>
                   <button
-                    disabled={!online}
+                    disabled={!online || !driveReady}
                     onClick={() => {
                       setSheet(null);
                       void process(false);

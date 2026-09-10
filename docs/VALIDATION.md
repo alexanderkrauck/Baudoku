@@ -44,3 +44,13 @@ Built on Gemini commit `6d17259`; its model selection and dependency files are u
 - Injected IndexedDB quota errors during camera capture. The photo remained in memory, the camera closed without inviting duplicate capture, and the storage error was shown. Once writes were re-enabled, pending audio and the photo committed and the error cleared.
 - Existing live Gemini behavior is user-verified; local browser exercises use mocked identity/Drive/AI and blocked Firestore. No physical phone lock-screen guarantee is inferred from desktop simulation. Browser storage eviction, OS termination and delayed media events remain platform limits.
 - Re-ran finish → mocked Drive originals → mocked room analysis → Markdown/JSON export → report navigation with Firestore unavailable; the new primary action completed the flow.
+
+## Drive authorization timing follow-up (2026-09-10)
+
+- Fixed the root cause of repeated authorization after reload: the Drive access token previously existed only in module memory. It now survives reload in sessionStorage, retains its original expiry, and is scoped to the restored Firebase account. Sign-out, account mismatch and expiry invalidate it.
+- Online capture requires authorization before opening the microphone and checks Drive access with a read-only request. Near-expiry tokens are renewed before starting a new recording. The existing Google sign-in already requests the required drive.file scope.
+- Saving no longer calls OAuth implicitly. Expired authorization exposes a separate reconnect action and disables both save variants. Offline recording remains possible; temporary Drive/network failures offer explicit local capture.
+- 81 Vitest tests, TypeScript, production build and five PWA checks pass. Added tests exercise session reload, account restoration/switching, expiry, blocked storage, event notification, scope-check rejection and transient failures.
+- Browser exercises with synthetic credentials and media verify pre-capture authorization, reload reuse, denial before any microphone request, explicit expiry state, and controls fitting 320×568. A failed network preflight keeps the microphone stopped until the user chooses local capture.
+- Access-token expiry still follows Google's browser OAuth model; this does not implement server-side refresh-token storage or claim permanent authorization. Live Google consent remains dependent on the deployed project's configuration.
+- Re-ran the save/analysis/Drive-export flow through the new primary action with mocked services; it completed without an OAuth popup.

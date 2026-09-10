@@ -59,7 +59,7 @@ Drive contains the audio, photos, structured JSON report data, and a readable Ma
 
 The app requests the `drive.file` scope. It can use files created by the app or explicitly selected through the Picker; this does not grant access to the entire Drive. Changing the destination affects future walkthroughs. Existing reports retain their own folder references.
 
-Firebase sign-in persistence is separate from Drive authorization. Reloading restores the signed-in account. A Drive reconnect may still be required when its short-lived Google access token expires. Tokens are not permanent passwords and cannot be silently extended just by retaining Firebase login.
+Firebase sign-in persistence is separate from Drive authorization. Reloading restores the signed-in account and reuses an unexpired Drive token from this tab’s session storage. Online recording checks Drive authorization before opening the microphone; missing authorization is requested before capture. Saving never implicitly opens a Google login popup. A Drive reconnect may still be required after closing the browser session or when its short-lived Google access token expires. Tokens are not permanent passwords and cannot be silently extended just by retaining Firebase login.
 
 Draft audio/photos and a report copy live in IndexedDB, scoped to the signed-in user, so a failed AI request or Firebase write can be retried. Each recording has its own recovery record; starting a new walkthrough does not replace earlier drafts. Audio is journaled incrementally with a requested one-second recorder interval, rather than rewriting the entire recording on each save. Failed writes remain queued in memory for retry. The screen shows the last committed audio timestamp and reports storage failures.
 

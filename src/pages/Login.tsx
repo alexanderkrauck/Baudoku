@@ -75,8 +75,8 @@ export default function Login() {
             Einfach weiterbauen.
           </h2>
           <p className="muted">
-            Melde dich mit Google an. Deine Begehungen und Originalaufnahmen
-            bleiben in deinem Drive.
+            Melde dich mit Google an und gib Drive für deine Begehungen frei.
+            Damit ist vor der ersten Aufnahme alles vorbereitet.
           </p>
           <button
             className="btn btn-primary login-button"
