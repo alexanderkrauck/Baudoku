@@ -1,62 +1,60 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from './lib/firebase';
-import { Loader2 } from 'lucide-react';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import RecordPage from './pages/RecordPage';
-import ReportPage from './pages/ReportPage';
-
-export let cachedAccessToken: string | null = null;
-export function setCachedAccessToken(token: string | null) {
-  cachedAccessToken = token;
-}
-
+import { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { onAuthStateChanged, type User } from "firebase/auth";
+import { auth } from "./lib/firebase";
+import { rememberToken } from "./lib/session";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import RecordPage from "./pages/RecordPage";
+import ReportPage from "./pages/ReportPage";
+import InstallApp from "./components/InstallApp";
+import { Loader2 } from "lucide-react";
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (!currentUser) {
-        cachedAccessToken = null;
-      }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  if (authLoading) {
+  const [loading, setLoading] = useState(true);
+  useEffect(
+    () =>
+      onAuthStateChanged(auth, (u) => {
+        setUser(u);
+        if (!u) rememberToken(undefined);
+        setLoading(false);
+      }),
+    [],
+  );
+  if (loading)
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      <div className="loading-screen">
+        <Loader2 className="spin" />
+        <p>Arbeitsbereich wird geladen …</p>
       </div>
     );
-  }
-
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route 
-          path="/" 
-          element={!user || !cachedAccessToken ? <Login setUser={setUser} /> : <Navigate to="/dashboard" />} 
-        />
-        <Route 
-          path="/dashboard" 
-          element={user && cachedAccessToken ? <Dashboard /> : <Navigate to="/" />} 
-        />
-        <Route 
-          path="/record" 
-          element={user && cachedAccessToken ? <RecordPage /> : <Navigate to="/" />} 
-        />
-        <Route 
-          path="/report/:id" 
-          element={user && cachedAccessToken ? <ReportPage /> : <Navigate to="/" />} 
-        />
-      </Routes>
-    </BrowserRouter>
+    <>
+      <InstallApp />
+      <BrowserRouter>
+        <Routes key={user?.uid || "signed-out"}>
+          <Route
+            path="/"
+            element={user ? <Navigate to="/dashboard" replace /> : <Login />}
+          />
+          <Route
+            path="/dashboard"
+            element={user ? <Dashboard /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/record"
+            element={user ? <RecordPage /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/report/:id"
+            element={user ? <ReportPage /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="*"
+            element={<Navigate to={user ? "/dashboard" : "/"} replace />}
+          />
+        </Routes>
+      </BrowserRouter>
+    </>
   );
 }
-

@@ -1,136 +1,245 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { auth, db } from '../lib/firebase';
-import { collection, query, orderBy, getDocs } from 'firebase/firestore';
-import { FileText, Plus, LogOut, Loader2 } from 'lucide-react';
-import { ReportData } from '../types';
-import { signOut } from 'firebase/auth';
-import { setCachedAccessToken } from '../App';
-
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { signOut } from "firebase/auth";
+import {
+  ArrowRight,
+  FileText,
+  LogOut,
+  Plus,
+  Search,
+  Settings2,
+  Mic,
+  RefreshCw,
+} from "lucide-react";
+import { auth } from "../lib/firebase";
+import { errorMessage } from "../lib/session";
+import { watchReports, saveReport, uid } from "../lib/reports";
+import { getDraft } from "../lib/local";
+import { Shell, Notice, Busy, Status, dateLabel } from "../components/UI";
+import type { Draft, ReportData } from "../types";
+import DriveSettings from "../components/DriveSettings";
 export default function Dashboard() {
-  const navigate = useNavigate();
   const [reports, setReports] = useState<ReportData[]>([]);
+  const [dirty, setDirty] = useState<string[]>([]);
+  const [draft, setDraft] = useState<Draft>();
   const [loading, setLoading] = useState(true);
-
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [settings, setSettings] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   useEffect(() => {
-    async function loadReports() {
-      if (!auth.currentUser) return;
-      try {
-        const q = query(collection(db, 'users', auth.currentUser.uid, 'reports'), orderBy('date', 'desc'));
-        const querySnapshot = await getDocs(q);
-        const loaded: ReportData[] = [];
-        querySnapshot.forEach((doc) => {
-          loaded.push({ id: doc.id, ...doc.data() } as ReportData);
-        });
-        setReports(loaded);
-      } catch (err) {
-        console.error("Error loading reports", err);
-      } finally {
+    getDraft(uid())
+      .then(setDraft)
+      .catch((e) => setError(errorMessage(e)));
+    return watchReports(
+      (data, unsynced) => {
+        setReports(data);
+        setDirty(unsynced);
         setLoading(false);
-      }
-    }
-    loadReports();
+      },
+      (e) => {
+        setError(errorMessage(e));
+        setLoading(false);
+      },
+    );
   }, []);
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    setCachedAccessToken(null);
-  };
-
+  async function sync() {
+    const owner = uid();
+    setSyncing(true);
+    setError("");
+    try {
+      for (const r of reports.filter((r) => dirty.includes(r.id))) {
+        if (uid() !== owner)
+          throw new Error(
+            "Das Google-Konto wurde gewechselt. Bitte erneut anmelden.",
+          );
+        const warning = await saveReport(r);
+        if (warning) throw new Error(warning);
+      }
+      setDirty([]);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSyncing(false);
+    }
+  }
+  const visible = reports.filter(
+    (r) =>
+      (filter === "all" ||
+        (filter === "completed"
+          ? r.status === "completed"
+          : r.status !== "completed")) &&
+      `${r.title} ${r.summary}`.toLowerCase().includes(search.toLowerCase()),
+  );
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans">
-      <header className="bg-white border-b border-neutral-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold tracking-tight text-neutral-800">Baudokumentationen</h1>
+    <Shell
+      actions={
+        <>
           <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900 transition-colors"
+            className="btn btn-ghost"
+            onClick={() => setSettings(!settings)}
+            aria-expanded={settings}
           >
-            <LogOut className="w-4 h-4" />
-            Abmelden
+            <Settings2 size={18} />
+            <span className="hide-mobile">Speicherort</span>
           </button>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <p className="text-neutral-500 font-medium">Ihre bisherigen Begehungen</p>
           <button
-            onClick={() => navigate('/record')}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors shadow-sm"
+            className="btn btn-ghost"
+            disabled={syncing}
+            onClick={() =>
+              signOut(auth).catch((e) => setError(errorMessage(e)))
+            }
+            aria-label="Abmelden"
           >
-            <Plus className="w-4 h-4" />
-            Neue Begehung
+            <LogOut size={18} />
           </button>
+        </>
+      }
+    >
+      {settings && <DriveSettings />}
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">DEIN BAUSTELLENBUCH</span>
+          <h1>
+            Begehungen<span className="accent">.</span>
+          </h1>
+          <p className="muted">Jeder Befund. Jedes Detail. An einem Ort.</p>
         </div>
-        
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-8 flex gap-4 items-start">
-          <div className="bg-blue-100 p-2 rounded-lg text-blue-600 shrink-0">
-            <FileText className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-blue-900">Wie es funktioniert</h3>
-            <p className="text-blue-800/80 text-sm mt-1 leading-relaxed">
-              Klicken Sie auf <strong>"Neue Begehung"</strong>, um zu starten. Nehmen Sie ein durchgehendes Audio auf und schießen Sie Fotos von den Mängeln oder Fortschritten. Die KI ordnet Ihre Worte und Bilder am Ende automatisch den richtigen Räumen zu.
-            </p>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-          </div>
-        ) : reports.length === 0 ? (
-          <div className="bg-white border border-neutral-200 border-dashed rounded-xl p-12 text-center flex flex-col items-center">
-            <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
-              <FileText className="w-8 h-8 text-blue-600" />
-            </div>
-            <h3 className="text-lg font-semibold text-neutral-900 mb-2">Noch keine Dokumentationen</h3>
-            <p className="text-neutral-500 max-w-sm mb-6">
-              Starten Sie eine neue Begehung, um Fotos und Audio aufzunehmen. Die KI generiert daraus automatisch einen strukturierten Bericht.
-            </p>
-            <button
-              onClick={() => navigate('/record')}
-              className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition-colors shadow-sm"
-            >
-              <Plus className="w-5 h-5" />
-              Jetzt starten
+        <Link to="/record" className="btn btn-primary">
+          <Plus size={20} />
+          Neue Begehung
+        </Link>
+      </div>
+      {error && <Notice>{error}</Notice>}
+      {dirty.length > 0 && (
+        <Notice kind="info">
+          <div className="split">
+            <span>
+              {dirty.length} Bericht(e) warten auf Firebase. Lokale Kopien sind
+              verfügbar.
+            </span>
+            <button className="btn" onClick={sync} disabled={syncing}>
+              <RefreshCw size={16} />
+              {syncing ? "Speichern …" : "Cloud erneut speichern"}
             </button>
           </div>
-        ) : (
-          <div className="grid gap-4">
-            {reports.map((report) => (
-              <div 
-                key={report.id} 
-                onClick={() => navigate(`/report/${report.id}`)}
-                className="bg-white border border-neutral-200 rounded-xl p-5 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-              >
-                <div>
-                  <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-semibold text-neutral-900 text-lg">{report.title || "Unbenannte Dokumentation"}</h3>
-                    {report.status === 'analyzing' && (
-                      <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Analyse läuft
-                      </span>
-                    )}
-                    {report.status === 'error' && (
-                      <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-medium">
-                        Fehler bei Analyse
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-neutral-500 text-sm">{new Date(report.date).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
-                  <p className="text-neutral-600 text-sm mt-2 line-clamp-2">{report.summary}</p>
-                </div>
-                <div className="flex items-center gap-2 text-blue-600 text-sm font-medium whitespace-nowrap bg-blue-50 px-3 py-1.5 rounded-lg">
-                  <FileText className="w-4 h-4" />
-                  Bericht ansehen
-                </div>
-              </div>
-            ))}
+        </Notice>
+      )}
+      {draft && (
+        <Link to="/record" className="draft-banner">
+          <span className="draft-icon">
+            <Mic />
+          </span>
+          <div>
+            <strong>Deine letzte Aufnahme wartet.</strong>
+            <p>Lokalen Entwurf fortsetzen · {draft.photos.length} Fotos</p>
           </div>
-        )}
-      </main>
-    </div>
+          <ArrowRight />
+        </Link>
+      )}
+      <div className="stats">
+        <div>
+          <span>BEGEHUNGEN</span>
+          <strong>{reports.length.toString().padStart(2, "0")}</strong>
+        </div>
+        <div>
+          <span>BERICHTE ERSTELLT</span>
+          <strong>
+            {reports
+              .filter((r) => r.status === "completed")
+              .length.toString()
+              .padStart(2, "0")}
+          </strong>
+        </div>
+        <div>
+          <span>IN BEARBEITUNG</span>
+          <strong>
+            {reports
+              .filter((r) => r.status !== "completed")
+              .length.toString()
+              .padStart(2, "0")}
+          </strong>
+        </div>
+      </div>
+      <div className="list-toolbar">
+        <div className="tabs" aria-label="Berichte filtern">
+          {[
+            ["all", "Alle"],
+            ["completed", "Erstellt"],
+            ["draft", "In Bearbeitung"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              className={filter === id ? "active" : ""}
+              onClick={() => setFilter(id)}
+              aria-pressed={filter === id}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label className="search">
+          <Search size={17} />
+          <input
+            aria-label="Berichte durchsuchen"
+            placeholder="Begehung suchen …"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
+      </div>
+      {loading ? (
+        <Busy text="Begehungen laden …" />
+      ) : visible.length ? (
+        <div className="report-list">
+          {visible.map((r, i) => (
+            <Link key={r.id} to={`/report/${r.id}`} className="report-card">
+              <div className="report-number">
+                {String(i + 1).padStart(2, "0")}
+              </div>
+              <div className="report-card-body">
+                <div className="report-card-meta">
+                  <span>{dateLabel(r.date)}</span>
+                  <Status report={r} local={dirty.includes(r.id)} />
+                </div>
+                <h2>{r.title || "Unbenannte Begehung"}</h2>
+                <p>
+                  {r.summary || "Aufnahme prüfen und einen Bericht erstellen."}
+                </p>
+                <span className="small muted">
+                  {r.rooms?.length || 0} Bereiche ·{" "}
+                  {r.photos?.length || r.rawPhotoUrls?.length || 0} Fotos
+                </span>
+              </div>
+              <ArrowRight className="report-arrow" />
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="empty panel">
+          <div className="empty-icon">
+            <FileText size={32} />
+          </div>
+          <span className="eyebrow">HIER BEGINNT DEINE DOKUMENTATION</span>
+          <h2>
+            {search || filter !== "all"
+              ? "Keine passenden Begehungen"
+              : "Die nächste Begehung? Gut vorbereitet."}
+          </h2>
+          <p className="muted">
+            {search || filter !== "all"
+              ? "Versuche einen anderen Suchbegriff oder Filter."
+              : "Starte eine Aufnahme, benenne den Bereich und beschreibe, was du siehst. Die KI hilft dir beim Strukturieren."}
+          </p>
+          {!search && filter === "all" && (
+            <Link className="btn btn-primary" to="/record">
+              <Mic size={18} />
+              Erste Begehung starten
+            </Link>
+          )}
+        </div>
+      )}
+    </Shell>
   );
 }

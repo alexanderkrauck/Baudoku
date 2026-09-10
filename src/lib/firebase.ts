@@ -1,14 +1,27 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
-import firebaseConfig from '../../firebase-applet-config.json';
-
+import { initializeApp } from "firebase/app";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
+import firebaseConfig from "../../firebase-applet-config.json";
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-// Pass firestoreDatabaseId specifically for AI Studio's generated DBs
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const storage = getStorage(app);
+const databaseId =
+  import.meta.env.VITE_FIRESTORE_DATABASE_ID ||
+  (firebaseConfig as typeof firebaseConfig & { firestoreDatabaseId?: string })
+    .firestoreDatabaseId ||
+  "(default)";
+export const db = initializeFirestore(
+  app,
+  {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+    ignoreUndefinedProperties: true,
+  },
+  databaseId,
+);
 export const provider = new GoogleAuthProvider();
-provider.addScope('https://www.googleapis.com/auth/drive.file');
-
+provider.addScope("https://www.googleapis.com/auth/drive.file");

@@ -1,0 +1,78 @@
+# Baudoku
+
+German-language construction walkthroughs: record audio, capture photos, generate a structured Gemini report, review it, and save the files in your Google Drive. Firebase handles sign-in and the report index; it is not the media storage backend.
+
+## Run locally
+
+Use Node.js 22 or newer and npm. `package-lock.json` is the authoritative dependency lockfile. The `qs` override selects the patched 6.16 release while Express 4 pins an older minor range.
+
+```sh
+npm ci
+cp .env.example .env
+npm run dev
+```
+
+Open `http://localhost:3000`. Set `GEMINI_API_KEY` in `.env` or the server environment. Do not prefix server secrets with `VITE_`; those variables are included in the browser bundle.
+
+```sh
+npm run lint
+npm test
+npm run test:pwa
+npm start
+```
+
+`npm run dev` runs Express and Vite together. `npm run test:pwa` builds the app, tests the generated service worker cache boundaries, and checks the actual production HTTP server. `npm start` explicitly selects production mode. `npm run build` produces the browser app and `dist/server.cjs`; the production Express server serves both `/api/*` and the SPA. `npm run preview` serves only the static frontend and cannot process AI analysis.
+
+## AI Studio / Cloud Run
+
+The app requests microphone/camera access in `metadata.json`, as required by the [AI Studio embedding permissions](https://ai.google.dev/gemini-api/docs/aistudio-build-mode). Keep the existing Express + Vite deployment model; the AI Studio media plugin and `DISABLE_HMR` behavior remain in `vite.config.ts`. Set the build command to `npm run build`, the run command to `npm start`, and `NODE_ENV=production`. The server binds to `0.0.0.0` and uses the platform's `PORT` (3000 by default).
+
+Configure `GEMINI_API_KEY` as a server secret. `GEMINI_MODEL` defaults to `gemini-2.5-flash` and can be changed to a model available to your project. The analysis endpoint verifies Firebase ID tokens, so `FIREBASE_PROJECT_ID`, if set, must match the frontend's `firebase-applet-config.json` project. `GET /api/health` reports whether an analysis key is configured without returning its value.
+
+Configure the deployment hostname in Firebase Authentication's authorized domains. Enable Google as a Firebase sign-in provider. Configure the matching Google OAuth web client and its authorized JavaScript origins. HTTPS is required on deployed sites for microphone capture and PWA installation. Test sign-in and installation at the deployed URL outside the AI Studio embedded preview; popup and install capabilities depend on the containing browser.
+
+## Firebase configuration and rules
+
+The checked-in `firebase-applet-config.json` is public browser configuration, not an admin credential. The app uses the `(default)` Firestore database unless `VITE_FIRESTORE_DATABASE_ID` is provided at build time or `firestoreDatabaseId` is present in that JSON. Ensure the selected database actually exists. The index is stored at `users/{firebaseUid}/reports/{reportId}`.
+
+Deploy the included owner-only rules to your Firebase project (requires an authenticated Firebase CLI):
+
+```sh
+firebase deploy --only firestore:rules --project gen-lang-client-0187125016
+```
+
+`firebase.json` targets the default database. For an existing named database, configure its exact name before deployment:
+
+```json
+{
+  "firestore": [{ "database": "YOUR_DATABASE_ID", "rules": "firestore.rules" }]
+}
+```
+
+Build with `VITE_FIRESTORE_DATABASE_ID=YOUR_DATABASE_ID` so the client and rules deployment agree. The rules allow users to read/write only their own reports and Drive destination setting at `users/{firebaseUid}/settings/drive` and require the basic report shape; all other collections are denied. Firebase Storage rules or a Storage bucket are not required for the new capture workflow. Existing media previously saved only in Firebase Storage is not automatically migrated.
+
+## Drive and data recovery
+
+AI requests resize photo copies to at most 1600 pixels and stay below Cloud Run’s 32 MiB HTTP/1 request limit. Original photos are uploaded to Drive unchanged.
+
+Drive contains the audio, photos, structured JSON report data, and a readable Markdown report (`bericht.md`). The Markdown export includes room summaries, transcripts, predefined tags, and private Drive media links. Edits update the existing export files on synchronization. Each walkthrough has a dedicated subfolder under the selected destination. Enable the Google Drive API for the OAuth project. Folder selection with the Google Picker additionally requires the Google Picker API, a browser API key (`VITE_GOOGLE_API_KEY`), and the Cloud project number (`VITE_GOOGLE_PROJECT_NUMBER`). These variables optionally override `apiKey` and `messagingSenderId` from the Firebase configuration. Restrict that browser key to your deployment origins and the required Google APIs.
+
+The app requests the `drive.file` scope. It can use files created by the app or explicitly selected through the Picker; this does not grant access to the entire Drive. Changing the destination affects future walkthroughs. Existing reports retain their own folder references.
+
+Firebase sign-in persistence is separate from Drive authorization. Reloading restores the signed-in account. A Drive reconnect may still be required when its short-lived Google access token expires. Tokens are not permanent passwords and cannot be silently extended just by retaining Firebase login.
+
+Draft audio/photos and a report copy live in IndexedDB, scoped to the signed-in user, so a failed AI request or Firebase write can be retried. A local copy is not a cloud backup: clearing website data removes it, and another device cannot see it until it is saved online. In-progress recording depends on the browser keeping the page alive; lock-screen/background recording is not guaranteed. Complete and save the recording before closing the app.
+
+## Installed app and offline behavior
+
+The production build includes a manifest, install icons, and a service worker. Supported browsers show an Install button when installation becomes available. On iPhone/iPad, use Safari's Share → Add to Home Screen. AI Studio preview and the Vite development server do not register a service worker.
+
+After one successful online production visit, the app shell can start offline. Previously saved local records/drafts remain on that browser. Google sign-in, Drive downloads/uploads, and Gemini analysis require a connection. The service worker caches only public shell files; it does not cache authenticated API responses or Drive media. Updates are offered explicitly rather than automatically reloading an active recording.
+
+## Verification boundaries
+
+Automated build/type checks and mocked browser/API tests can verify navigation, local recovery, contracts, and error handling. They do not prove that the deployed OAuth consent screen, Firestore rules, Google project quotas, Drive Picker configuration, or Gemini billing are configured correctly.
+
+Before relying on a deployment, use a test account to sign in, reload, choose a Drive folder, record/pause/resume with photos, generate a report, edit and save it, and inspect the actual Drive files. Open the report on a second device to verify the Firebase index. Test an expired Drive authorization and an offline retry. Install the production PWA and check that an offline reload opens the shell. No cloud-rule deployment or live-account smoke test is implied by pushing this repository.
+
+See [the project map](docs/PROJECT_MAP.md) for module boundaries and the failure modes addressed.
