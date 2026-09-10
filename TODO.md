@@ -13,3 +13,12 @@
 - [x] Review changes, commit, and push to origin/main.
 
 Validation details and live-service boundaries are recorded in [docs/VALIDATION.md](docs/VALIDATION.md).
+
+## Mobile recording and recovery follow-up
+
+- [x] Review Gemini's latest changes and preserve its working analysis model.
+- [x] Fit capture controls into one phone viewport; make save/analysis the explicit next step.
+- [x] Add per-recording incremental local audio recovery and legacy draft migration. (durable_recordings)
+- [x] Add wake lock, background flush, interruption handling, and in-app camera. (mobile_lifecycle)
+- [x] Verify small-phone/landscape layouts, offline capture, reload recovery, and storage retry.
+- [x] Commit and push the verified follow-up.

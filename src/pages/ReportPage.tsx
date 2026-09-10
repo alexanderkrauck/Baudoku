@@ -265,7 +265,7 @@ export default function ReportPage() {
         throw new Error(
           "Das Google-Konto wurde gewechselt. Bitte den Bericht im ursprünglichen Konto öffnen.",
         );
-      const local = await getDraft(owner);
+      const local = await getDraft(owner, report.id);
       const d =
         local?.report.id === report.id && local.audio
           ? { ...local, report }

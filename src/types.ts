@@ -19,6 +19,7 @@ export interface ReportData {
   status?: "pending" | "analyzing" | "completed" | "error";
   error?: string;
   durationMs?: number;
+  captureState?: "recording" | "paused" | "stopped";
   rawAudioUrl?: string; // Legacy name: a private Drive file ID, not a URL
   rawPhotoUrls?: string[];
   photos?: { id: string; relativeTimeMs: number | null; driveId?: string }[];

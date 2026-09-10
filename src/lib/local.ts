@@ -1,4 +1,15 @@
-import { createStore, get, set, del, entries, update } from "idb-keyval";
+import {
+  createStore,
+  get,
+  set,
+  del,
+  entries,
+  update,
+  setMany,
+  delMany,
+  keys,
+  getMany,
+} from "idb-keyval";
 import type { Draft, ReportData } from "../types";
 const store = createStore("baudoku", "workspace");
 const key = (uid: string, id: string) => `${uid}:report:${id}`;
@@ -61,7 +72,184 @@ export async function listLocal(uid: string) {
     .filter(([k]) => k.startsWith(`${uid}:report:`))
     .map(([, v]) => v);
 }
-export const putDraft = (uid: string, draft: Draft) =>
-  set(`${uid}:draft`, draft, store);
-export const getDraft = (uid: string) => get<Draft>(`${uid}:draft`, store);
-export const deleteDraft = (uid: string) => del(`${uid}:draft`, store);
+const draftKey = (uid: string, id: string) => `${uid}:draft:${id}`;
+const activeDraftKey = (uid: string) => `${uid}:active-draft`;
+
+// Preserve the old single-slot draft before any new capture can replace it.
+// The old key is removed only after its per-recording copy has committed.
+async function migrateDraft(uid: string) {
+  const legacy = await get<Draft>(`${uid}:draft`, store);
+  if (!legacy) return;
+  await update<Draft>(
+    draftKey(uid, legacy.report.id),
+    (existing) => existing ?? legacy,
+    store,
+  );
+  await del(`${uid}:draft`, store);
+}
+
+export async function putDraft(uid: string, draft: Draft) {
+  await migrateDraft(uid);
+  // IndexedDB commits both keys atomically. A quota failure leaves the previous
+  // complete audio/photo snapshot intact and is surfaced to the recording UI.
+  await setMany(
+    [
+      [draftKey(uid, draft.report.id), draft],
+      [activeDraftKey(uid), draft.report.id],
+    ],
+    store,
+  );
+  emit(uid);
+}
+
+interface RecordingChunk {
+  sequence: number;
+  blob: Blob;
+  durationMs: number;
+}
+const progressKey = (uid: string, id: string) =>
+  `${uid}:capture-progress:${id}`;
+const chunkPrefix = (uid: string, id: string) => `${uid}:audio-chunk:${id}:`;
+
+// Each recorder event is committed independently; growing recordings never
+// rewrite all previous audio on every autosave. Callers serialize chunk writes.
+export async function appendRecordingChunk(
+  uid: string,
+  reportId: string,
+  sequence: number,
+  blob: Blob,
+  durationMs: number,
+) {
+  if (!blob.size) return;
+  await setMany(
+    [
+      [
+        `${chunkPrefix(uid, reportId)}${sequence}`,
+        { sequence, blob, durationMs } satisfies RecordingChunk,
+      ],
+      [progressKey(uid, reportId), { durationMs }],
+    ],
+    store,
+  );
+}
+
+function recoverAudio(
+  uid: string,
+  draft: Draft,
+  records: [string, unknown][],
+): Draft {
+  const chunks = records
+    .filter(([k]) => k.startsWith(chunkPrefix(uid, draft.report.id)))
+    .map(([, value]) => value as RecordingChunk)
+    .sort((a, b) => a.sequence - b.sequence);
+  if (!chunks.length) return draft;
+  const journalBytes = chunks.reduce((sum, chunk) => sum + chunk.blob.size, 0);
+  return {
+    ...draft,
+    audio:
+      draft.audio && draft.audio.size >= journalBytes
+        ? draft.audio
+        : new Blob(
+            chunks.map((chunk) => chunk.blob),
+            {
+              type: chunks[0].blob.type || draft.audio?.type || "audio/webm",
+            },
+          ),
+    report: {
+      ...draft.report,
+      durationMs: Math.max(
+        draft.report.durationMs || 0,
+        ...chunks.map((chunk) => chunk.durationMs),
+      ),
+    },
+  };
+}
+
+async function readMatchingRecords(
+  matches: (key: string) => boolean,
+): Promise<[string, unknown][]> {
+  const selected = (await keys<string>(store)).filter(matches);
+  const values = await getMany<unknown>(selected, store);
+  return selected.map((key, index) => [key, values[index]]);
+}
+
+export async function listDrafts(
+  uid: string,
+  options: { includeAudio?: boolean } = {},
+): Promise<Draft[]> {
+  await migrateDraft(uid);
+  const records = await readMatchingRecords(
+    (key) =>
+      key.startsWith(`${uid}:draft:`) ||
+      key.startsWith(`${uid}:capture-progress:`) ||
+      (options.includeAudio !== false && key.startsWith(`${uid}:audio-chunk:`)),
+  );
+  return records
+    .filter(([k]) => k.startsWith(`${uid}:draft:`))
+    .map(([, value]) => {
+      const draft = value as Draft;
+      if (options.includeAudio !== false)
+        return recoverAudio(uid, draft, records);
+      const progress = records.find(
+        ([key]) => key === progressKey(uid, draft.report.id),
+      )?.[1] as { durationMs: number } | undefined;
+      return {
+        ...draft,
+        audio: undefined,
+        report: {
+          ...draft.report,
+          durationMs: Math.max(
+            draft.report.durationMs || 0,
+            progress?.durationMs || 0,
+          ),
+        },
+      };
+    })
+    .sort((a, b) =>
+      (b.report.updatedAt || b.report.date).localeCompare(
+        a.report.updatedAt || a.report.date,
+      ),
+    );
+}
+
+export async function getDraft(
+  uid: string,
+  id?: string,
+): Promise<Draft | undefined> {
+  await migrateDraft(uid);
+  const selected = id || (await get<string>(activeDraftKey(uid), store));
+  if (selected) {
+    const draft = await get<Draft>(draftKey(uid, selected), store);
+    if (draft) {
+      const chunks = await readMatchingRecords((key) =>
+        key.startsWith(chunkPrefix(uid, selected)),
+      );
+      return recoverAudio(uid, draft, chunks);
+    }
+    if (id) return undefined;
+  }
+  return (await listDrafts(uid))[0];
+}
+
+export async function deleteDraft(uid: string, id?: string) {
+  const draft = await getDraft(uid, id);
+  if (!draft) return;
+  const storedKeys = await keys<string>(store);
+  await delMany(
+    [
+      draftKey(uid, draft.report.id),
+      progressKey(uid, draft.report.id),
+      ...storedKeys.filter((k) =>
+        k.startsWith(chunkPrefix(uid, draft.report.id)),
+      ),
+    ],
+    store,
+  );
+  // Do not clear a newer capture's pointer if a different report finished saving.
+  await update<string | undefined>(
+    activeDraftKey(uid),
+    (active) => (active === draft.report.id ? undefined : active),
+    store,
+  );
+  emit(uid);
+}

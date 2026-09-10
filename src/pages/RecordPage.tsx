@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   Camera,
@@ -8,14 +8,28 @@ import {
   Mic,
   Pause,
   Play,
-  Square,
+  ArrowRight,
+  FolderOpen,
+  MoreHorizontal,
+  Loader2,
+  ImagePlus,
   Trash2,
   Upload,
   WandSparkles,
   CloudUpload,
 } from "lucide-react";
-import { Shell, Notice, BlobImage, AudioPreview, Busy } from "../components/UI";
-import { getDraft, putDraft, deleteDraft } from "../lib/local";
+import { BlobImage, AudioPreview } from "../components/UI";
+import RecordingSheet from "../components/RecordingSheet";
+import RecordingCamera from "../components/RecordingCamera";
+import { savedDriveFolder } from "../lib/driveSettings";
+import "./record.css";
+import { useRecordingLifecycle } from "../lib/useRecordingLifecycle";
+import {
+  getDraft,
+  putDraft,
+  deleteDraft,
+  appendRecordingChunk,
+} from "../lib/local";
 import { uid, saveReport } from "../lib/reports";
 import { errorMessage, connectGoogle, driveToken } from "../lib/session";
 import { analyzeDraft, backupDraft, syncReport } from "../lib/workflow";
@@ -46,6 +60,9 @@ export const formatTime = (ms: number) =>
     .padStart(2, "0")}`;
 export default function RecordPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedDraft = useRef(searchParams.get("draft")).current;
+  const startNew = useRef(searchParams.has("new")).current;
   const [accountId] = useState(uid);
   const [draft, setDraft] = useState<Draft>(fresh);
   const current = useRef(draft);
@@ -58,54 +75,164 @@ export default function RecordPage() {
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const [saved, setSaved] = useState(false);
-  const [settings, setSettings] = useState(false);
+  const [checkpointMs, setCheckpointMs] = useState(0);
+  const [sheet, setSheet] = useState<
+    "settings" | "photos" | "options" | "leave" | null
+  >(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [folder, setFolder] = useState(savedDriveFolder);
+  const saveButton = useRef<HTMLButtonElement>(null);
+  const recording = state === "recording" || state === "paused";
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const update = () => setOnline(navigator.onLine);
+    const updateFolder = () => setFolder(savedDriveFolder());
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    window.addEventListener("baudoku:drive-settings", updateFolder);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+      window.removeEventListener("baudoku:drive-settings", updateFolder);
+    };
+  }, []);
+  useEffect(() => {
+    if (state === "review" && !loading)
+      saveButton.current?.focus({ preventScroll: true });
+  }, [state, loading]);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
+  const chunkSequence = useRef(0);
+  const pendingChunks = useRef(
+    new Map<number, { blob: Blob; durationMs: number; reportId: string }>(),
+  );
   const clock = useRef(new RecordingClock());
   const operation = useRef(false);
   const revision = useRef(0);
   const photoTime = useRef<number | null>(0);
   const queue = useRef(Promise.resolve());
+  const pendingSnapshot = useRef<Draft | null>(null);
   const active = useRef(true);
   const photoInput = useRef<HTMLInputElement>(null);
   const audioInput = useRef<HTMLInputElement>(null);
   const elapsedNow = () => clock.current.read();
-  const persist = (next: Draft) => {
-    current.current = next;
-    const writeRevision = ++revision.current;
-    if (active.current) {
-      setDraft(next);
-      setSaved(false);
+  const flushChunks = async () => {
+    for (const [sequence, chunk] of [...pendingChunks.current]) {
+      await appendRecordingChunk(
+        accountId,
+        chunk.reportId,
+        sequence,
+        chunk.blob,
+        chunk.durationMs,
+      );
+      pendingChunks.current.delete(sequence);
+      if (active.current) setCheckpointMs(chunk.durationMs);
     }
+  };
+  const queueWrite = (write: () => Promise<void>) => {
+    const writeRevision = ++revision.current;
+    if (active.current) setSaved(false);
     queue.current = queue.current
       .catch(() => {})
-      .then(() => putDraft(accountId, next));
+      .then(async () => {
+        await flushChunks();
+        const snapshot = pendingSnapshot.current;
+        if (snapshot) {
+          await putDraft(accountId, snapshot);
+          if (pendingSnapshot.current === snapshot)
+            pendingSnapshot.current = null;
+        }
+        await write();
+      });
     queue.current
       .then(() => {
-        if (active.current && writeRevision === revision.current)
+        if (
+          active.current &&
+          writeRevision === revision.current &&
+          pendingChunks.current.size === 0 &&
+          !pendingSnapshot.current
+        ) {
           setSaved(true);
+          setError((previous) =>
+            previous.startsWith("Lokales Speichern fehlgeschlagen.")
+              ? ""
+              : previous,
+          );
+        }
       })
       .catch(() => {
         if (active.current)
           setError(
-            "Lokales Speichern fehlgeschlagen. Bitte die Aufnahme herunterladen und freien Gerätespeicher prüfen.",
+            "Lokales Speichern fehlgeschlagen. Die Aufnahme bleibt im Arbeitsspeicher. Bitte die Seite geöffnet lassen, die Begehung abschließen und das Audio über Weitere Optionen herunterladen.",
           );
       });
     return queue.current;
   };
+  const persist = (next: Draft) => {
+    current.current = next;
+    if (active.current) setDraft(next);
+    // Audio is journaled separately: never rewrite an hour-long Blob every second.
+    const snapshot = chunks.current.length
+      ? { ...next, audio: undefined }
+      : next;
+    pendingSnapshot.current = snapshot;
+    return queueWrite(async () => {});
+  };
+  const { wakeLockState } = useRecordingLifecycle({
+    recorderRef: recorder,
+    active: recording,
+    onInterrupted: (reason) => {
+      if (!active.current) return;
+      const rec = recorder.current;
+      if (reason === "muted" && rec?.state === "recording") {
+        pause();
+        setWarning(
+          "Das Telefon hat das Mikrofon unterbrochen. Die Aufnahme ist pausiert. Prüfe das Mikrofon und tippe dann auf Weiter.",
+        );
+      } else if (reason !== "muted") {
+        clock.current.pause();
+        if (rec && rec.state !== "inactive") stop();
+        else {
+          setDuration(elapsedNow());
+          setState("review");
+        }
+        setWarning(
+          "Das Telefon hat die Aufnahme beendet. Die bisher erfassten Audiodaten sind im Entwurf. Bitte anhören und sichern.",
+        );
+      }
+    },
+    onVisibilityReturn: () => {
+      void queueWrite(async () => {}).catch(() => {});
+    },
+  });
   useEffect(() => {
     active.current = true;
     let cancelled = false;
-    getDraft(accountId)
+    const restore = startNew
+      ? Promise.resolve(undefined)
+      : getDraft(accountId, requestedDraft || undefined);
+    restore
       .then((d) => {
         if (d && !cancelled) {
           current.current = d;
           setDraft(d);
           setState(d.audio ? "review" : "ready");
           setDuration(d.report.durationMs || 0);
+          setCheckpointMs(d.report.durationMs || 0);
           clock.current.reset(d.report.durationMs || 0);
           setSaved(true);
+          if (d.audio && d.report.captureState !== "stopped")
+            setWarning(
+              "Eine frühere Aufnahme wurde wiederhergestellt. Bitte die gesicherten Audiodaten anhören und anschließend in Drive sichern.",
+            );
         }
+        if (!cancelled)
+          navigate(`/record?draft=${(d || current.current).report.id}`, {
+            replace: true,
+          });
       })
       .catch((e) => {
         if (!cancelled) setError(errorMessage(e));
@@ -172,18 +299,37 @@ export default function RecordPage() {
       }
       recorder.current = rec;
       chunks.current = [];
+      chunkSequence.current = 0;
       clock.current.reset();
+      await persist({
+        ...current.current,
+        report: { ...current.current.report, captureState: "recording" },
+      });
+      if (!active.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      void navigator.storage?.persist?.().catch(() => {});
       rec.ondataavailable = (e) => {
         if (!e.data.size) return;
         chunks.current.push(e.data);
         const audio = new Blob(chunks.current, {
           type: rec.mimeType || e.data.type,
         });
-        void persist({
+        const durationMs = elapsedNow();
+        const next = {
           ...current.current,
           audio,
-          report: { ...current.current.report, durationMs: elapsedNow() },
-        }).catch(() => {});
+          report: { ...current.current.report, durationMs },
+        };
+        current.current = next;
+        if (active.current) setDraft(next);
+        pendingChunks.current.set(chunkSequence.current++, {
+          blob: e.data,
+          durationMs,
+          reportId: next.report.id,
+        });
+        void queueWrite(async () => {}).catch(() => {});
         if (audio.size > MAX_FILE_BYTES - 512000 && rec.state !== "inactive") {
           if (active.current)
             setWarning(
@@ -210,14 +356,18 @@ export default function RecordPage() {
         if (current.current.audio)
           void persist({
             ...current.current,
-            report: { ...current.current.report, durationMs: finalDuration },
+            report: {
+              ...current.current.report,
+              durationMs: finalDuration,
+              captureState: "stopped",
+            },
           }).catch(() => {});
         if (active.current) {
           setDuration(finalDuration);
           setState("review");
         }
       };
-      rec.start(5000);
+      rec.start(1000);
       clock.current.resume();
       setState("recording");
       setDuration(0);
@@ -243,10 +393,29 @@ export default function RecordPage() {
       rec.requestData();
       setState("paused");
       setDuration(time);
+      void persist({
+        ...current.current,
+        report: { ...current.current.report, captureState: "paused" },
+      }).catch(() => {});
     } else if (rec.state === "paused") {
+      if (
+        rec.stream
+          .getAudioTracks()
+          .some((track) => track.muted || track.readyState === "ended")
+      ) {
+        setWarning(
+          "Das Mikrofon ist noch nicht verfügbar. Die Aufnahme bleibt pausiert.",
+        );
+        return;
+      }
+      setWarning("");
       clock.current.resume();
       rec.resume();
       setState("recording");
+      void persist({
+        ...current.current,
+        report: { ...current.current.report, captureState: "recording" },
+      }).catch(() => {});
     }
   }
   function stop() {
@@ -371,7 +540,7 @@ export default function RecordPage() {
       const result = await syncReport(d.report, token);
       await persist({ ...d, report: result.report });
       if (result.warning) setWarning(result.warning);
-      await deleteDraft(accountId);
+      await deleteDraft(accountId, result.report.id);
       current.current = fresh();
       if (active.current) navigate(`/report/${result.report.id}`);
     } catch (e) {
@@ -389,16 +558,21 @@ export default function RecordPage() {
     )
       return;
     await queue.current.catch(() => {});
-    await deleteDraft(accountId);
+    await deleteDraft(accountId, current.current.report.id);
+    chunks.current = [];
+    pendingChunks.current.clear();
+    pendingSnapshot.current = null;
     const d = fresh();
     current.current = d;
     setDraft(d);
     setState("ready");
     clock.current.reset();
     setDuration(0);
+    setCheckpointMs(0);
     setError("");
     setWarning("");
     setSaved(false);
+    navigate(`/record?draft=${d.report.id}`, { replace: true });
   }
   function download() {
     if (!draft.audio) return;
@@ -409,295 +583,520 @@ export default function RecordPage() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  if (loading)
-    return (
-      <Shell>
-        <Busy text="Lokalen Entwurf laden …" />
-      </Shell>
-    );
-  const recording = state === "recording" || state === "paused";
+  function leave() {
+    if (busy || recording) return;
+    if (current.current.audio) setSheet("leave");
+    else navigate("/dashboard");
+  }
+  function capturePhoto() {
+    setSheet(null);
+    setCameraOpen(true);
+  }
+  const previewPhotos = draft.photos.slice(-3);
   return (
-    <Shell
-      actions={
-        <button
-          className="btn btn-ghost"
-          disabled={recording || !!busy}
-          onClick={() => navigate("/dashboard")}
-        >
-          <ArrowLeft size={18} />
-          Übersicht
-        </button>
-      }
-    >
-      <div className="record-heading">
-        <span className="eyebrow">NEUE BEGEHUNG</span>
-        <div className="steps">
-          <span className={state !== "review" ? "active" : ""}>
-            01 Aufnahme
-          </span>
-          <i />
-          <span className={state === "review" ? "active" : ""}>
-            02 Prüfen & sichern
-          </span>
-          <i />
-          <span>03 Bericht</span>
-        </div>
-      </div>
-      {error && <Notice>{error}</Notice>}
-      {warning && <Notice kind="info">{warning}</Notice>}
-      <div className="record-layout">
-        <section className="panel capture-panel">
-          <label className="field-label" htmlFor="title">
-            PROJEKT / BEGEHUNG
-          </label>
-          <input
-            id="title"
-            className="title-input"
-            placeholder="z. B. Wohnhaus · Begehung EG"
-            value={draft.report.title}
-            disabled={!!busy}
-            onChange={(e) => {
-              void persist({
-                ...current.current,
-                report: {
-                  ...current.current.report,
-                  title: e.target.value,
-                  projectName: e.target.value,
-                },
-              }).catch(() => {});
-            }}
-          />
-          <div
-            className={`recorder ${state === "recording" ? "is-recording" : ""}`}
+    <div className={`walk-page walk-${state}`}>
+      <div className="walk-frame" inert={sheet !== null || cameraOpen}>
+        <header className="walk-header">
+          <button
+            className="walk-icon"
+            aria-label="Zur Übersicht"
+            disabled={recording || !!busy || loading}
+            onClick={leave}
           >
-            <span className="badge">
-              <span className="status-dot" />
-              {state === "ready"
-                ? "BEREIT FÜR DEINEN RUNDGANG"
-                : state === "recording"
-                  ? "AUFNAHME LÄUFT"
-                  : state === "paused"
-                    ? "AUFNAHME PAUSIERT"
-                    : saved
-                      ? "AUFNAHME LOKAL GESPEICHERT"
-                      : "AUFNAHME ZUM PRÜFEN"}
+            <ArrowLeft size={21} />
+          </button>
+          <div>
+            <span className="walk-step">
+              {state === "review" ? "SCHRITT 2 VON 2" : "SCHRITT 1 VON 2"}
             </span>
-            <div className="timer">{formatTime(duration)}</div>
-            <div className="waveform" aria-hidden="true">
-              {Array.from({ length: 35 }, (_, i) => (
-                <i
-                  key={i}
-                  style={{
-                    height: `${10 + ((i * 17 + 9) % 48)}px`,
-                    animationDelay: `${i * 0.04}s`,
-                  }}
-                />
-              ))}
-            </div>
-            <p>
+            <strong>
               {state === "review"
-                ? "Hör kurz rein. Danach kann die KI deinen Bericht erstellen."
-                : "Nenne den Raum und beschreibe, was du siehst."}
-            </p>
-            {state === "ready" ? (
-              <button
-                className="record-button"
-                onClick={start}
-                disabled={!!busy}
-                aria-label="Aufnahme starten"
-              >
-                <Mic size={30} />
-              </button>
-            ) : recording ? (
-              <div className="record-controls">
-                <button
-                  className="btn btn-dark"
-                  onClick={pause}
-                  aria-label={
-                    state === "paused"
-                      ? "Aufnahme fortsetzen"
-                      : "Aufnahme pausieren"
-                  }
-                >
-                  {state === "paused" ? <Play /> : <Pause />}
-                  {state === "paused" ? "Fortsetzen" : "Pause"}
-                </button>
-                <button
-                  className="record-button stop"
-                  onClick={stop}
-                  aria-label="Aufnahme beenden"
-                >
-                  <Square size={25} fill="currentColor" />
-                </button>
-              </div>
-            ) : (
-              draft.audio && <AudioPreview blob={draft.audio} />
-            )}
+                ? "Sichern & analysieren"
+                : "Begehung aufnehmen"}
+            </strong>
           </div>
-          <div className="capture-footer">
-            <span className="small muted">
-              {saved ? (
+          <button
+            className="walk-icon"
+            aria-label="Weitere Optionen"
+            disabled={recording || !!busy || loading}
+            onClick={() => setSheet("options")}
+          >
+            <MoreHorizontal size={23} />
+          </button>
+        </header>
+        {(error || warning || !online) && (
+          <div
+            className={`walk-message ${error ? "is-error" : ""}`}
+            role={error ? "alert" : "status"}
+          >
+            {error ||
+              warning ||
+              "Offline · Aufnahme möglich. Zum Sichern in Drive benötigst du Internet."}
+          </div>
+        )}
+        {loading ? (
+          <main className="walk-progress" role="status">
+            <Loader2 className="spin" />
+            <h1>Entwurf laden …</h1>
+          </main>
+        ) : busy ? (
+          <main className="walk-progress" aria-live="polite" aria-busy="true">
+            <div className="walk-progress-icon">
+              <Loader2 className="spin" size={32} />
+            </div>
+            <span className="walk-step">BITTE DIESE SEITE GEÖFFNET LASSEN</span>
+            <h1>{busy}</h1>
+            <p>Du kommst direkt zum Bericht, sobald er bereit ist.</p>
+          </main>
+        ) : (
+          <>
+            <main className="walk-content">
+              {state === "ready" ? (
                 <>
-                  <Check size={15} /> Entwurf lokal gespeichert
+                  <label className="walk-project">
+                    <span>PROJEKT / BEGEHUNG</span>
+                    <input
+                      id="title"
+                      placeholder="z. B. Wohnhaus · Erdgeschoss"
+                      value={draft.report.title}
+                      onChange={(e) => {
+                        void persist({
+                          ...current.current,
+                          report: {
+                            ...current.current.report,
+                            title: e.target.value,
+                            projectName: e.target.value,
+                          },
+                        }).catch(() => {});
+                      }}
+                    />
+                  </label>
+                  <div className="walk-ready-intro">
+                    <div className="walk-mic-symbol">
+                      <Mic size={32} />
+                    </div>
+                    <h1>
+                      Ein Rundgang.
+                      <br />
+                      Alles festgehalten.
+                    </h1>
+                    <p>
+                      Nenne den Raum, sprich deine Beobachtungen ein und halte
+                      Details im Foto fest.
+                    </p>
+                  </div>
+                  <button
+                    className="walk-folder"
+                    onClick={() => setSheet("settings")}
+                  >
+                    <FolderOpen size={18} />
+                    <span>
+                      <small>SPEICHERORT IN GOOGLE DRIVE</small>
+                      <strong>
+                        {folder?.name || "Baudokumentationen (App)"}
+                      </strong>
+                    </span>
+                    <ArrowRight size={17} />
+                  </button>
+                </>
+              ) : recording ? (
+                <>
+                  <div className="walk-project-name">
+                    {draft.report.title || "Deine Begehung"}
+                  </div>
+                  <div
+                    className={`walk-live ${state === "paused" ? "is-paused" : ""}`}
+                  >
+                    <span className="walk-live-status">
+                      <i />
+                      {state === "paused"
+                        ? "Aufnahme pausiert"
+                        : "Aufnahme läuft"}
+                    </span>
+                    <div className="walk-timer" aria-label="Aufnahmedauer">
+                      {formatTime(duration)}
+                    </div>
+                    <div className="walk-wave" aria-hidden="true">
+                      {Array.from({ length: 29 }, (_, i) => (
+                        <i
+                          key={i}
+                          style={{
+                            height: `${8 + ((i * 17 + 9) % 34)}px`,
+                            animationDelay: `${i * 0.04}s`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <p>
+                      {state === "paused"
+                        ? "Durchatmen. Weiter, wenn du bereit bist."
+                        : "Raumwechsel laut ansagen. Details fotografieren."}
+                    </p>
+                  </div>
+                  <div className="walk-photo-strip">
+                    <div className="walk-thumbnails">
+                      {previewPhotos.length ? (
+                        previewPhotos.map((photo, i) => (
+                          <button
+                            key={photo.id}
+                            className="walk-thumb"
+                            onClick={() => setSheet("photos")}
+                            aria-label={`Foto ${draft.photos.length - previewPhotos.length + i + 1} ansehen`}
+                          >
+                            <BlobImage blob={photo.blob} alt="" />
+                            <span>
+                              {photo.relativeTimeMs === null
+                                ? "Foto"
+                                : formatTime(photo.relativeTimeMs)}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="walk-no-photos">
+                          <ImagePlus size={20} />
+                          <span>Deine Fotos erscheinen hier.</span>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      className="walk-photo-count"
+                      disabled={!draft.photos.length}
+                      onClick={() => setSheet("photos")}
+                      aria-label={`Alle ${draft.photos.length} Fotos ansehen`}
+                    >
+                      {draft.photos.length}
+                      <small>Fotos</small>
+                    </button>
+                  </div>
                 </>
               ) : (
-                "Entwurf wird auf diesem Gerät gesichert"
-              )}
-            </span>
-            {state === "ready" && (
-              <button
-                className="btn btn-ghost"
-                disabled={!!busy}
-                onClick={() => audioInput.current?.click()}
-              >
-                <Upload size={16} />
-                Audio importieren
-              </button>
-            )}
-            {state === "review" && (
-              <button className="btn btn-ghost" onClick={download}>
-                <Download size={16} />
-                Audio herunterladen
-              </button>
-            )}
-          </div>
-          <input
-            type="file"
-            ref={audioInput}
-            hidden
-            accept="audio/*"
-            onChange={(e) => {
-              void importAudio(e.target.files?.[0]).catch((e) =>
-                setError(errorMessage(e)),
-              );
-              e.target.value = "";
-            }}
-          />
-        </section>
-        <aside className="record-aside">
-          <section className="panel photo-panel">
-            <div className="split">
-              <h2>
-                Fotos <span className="count">{draft.photos.length}</span>
-              </h2>
-              <Camera size={20} />
-            </div>
-            <p className="muted small">
-              Während der Aufnahme erhalten Fotos einen Zeitstempel für die
-              Raumzuordnung.
-            </p>
-            <div className="photo-grid">
-              {draft.photos.map((p, i) => (
-                <figure key={p.id}>
-                  <BlobImage blob={p.blob} alt={`Baustellenfoto ${i + 1}`} />
-                  <figcaption>
-                    {p.relativeTimeMs === null
-                      ? "Ohne Zeitstempel"
-                      : formatTime(p.relativeTimeMs)}
-                  </figcaption>
+                <>
+                  <div className="walk-review-intro">
+                    <span className="walk-pending">
+                      Noch nicht fertig · Sichern steht aus
+                    </span>
+                    <h1>
+                      Aufnahme fertig.
+                      <br />
+                      Jetzt den Bericht erstellen.
+                    </h1>
+                    <p>
+                      Audio und Fotos in Drive sichern und automatisch nach
+                      Räumen strukturieren.
+                    </p>
+                  </div>
+                  <div className="walk-review-media">
+                    <div className="walk-review-stats">
+                      <span>
+                        <Mic size={18} />
+                        {formatTime(duration)} Aufnahme
+                      </span>
+                      <button onClick={() => setSheet("photos")}>
+                        <Camera size={18} />
+                        {draft.photos.length} Fotos <ArrowRight size={14} />
+                      </button>
+                    </div>
+                    {draft.audio && <AudioPreview blob={draft.audio} />}
+                  </div>
                   <button
-                    aria-label={`Foto ${i + 1} entfernen`}
-                    disabled={!!busy}
+                    className="walk-folder"
+                    onClick={() => setSheet("settings")}
+                  >
+                    <FolderOpen size={18} />
+                    <span>
+                      <small>SPEICHERORT IN GOOGLE DRIVE</small>
+                      <strong>
+                        {folder?.name || "Baudokumentationen (App)"}
+                      </strong>
+                    </span>
+                    <ArrowRight size={17} />
+                  </button>
+                </>
+              )}
+            </main>
+            <footer className="walk-dock">
+              {recording ? (
+                <>
+                  <div className="walk-capture-controls">
+                    <button
+                      className="walk-pause"
+                      onClick={pause}
+                      aria-label={
+                        state === "paused"
+                          ? "Aufnahme fortsetzen"
+                          : "Aufnahme pausieren"
+                      }
+                    >
+                      {state === "paused" ? (
+                        <Play size={23} />
+                      ) : (
+                        <Pause size={23} />
+                      )}
+                      <span>{state === "paused" ? "Weiter" : "Pause"}</span>
+                    </button>
+                    <button
+                      className="walk-camera"
+                      onClick={capturePhoto}
+                      disabled={draft.photos.length >= MAX_PHOTOS}
+                    >
+                      <Camera size={28} />
+                      <span>
+                        {draft.photos.length >= MAX_PHOTOS
+                          ? "30 Fotos erreicht"
+                          : "Foto aufnehmen"}
+                      </span>
+                    </button>
+                  </div>
+                  <button className="walk-finish" onClick={stop}>
+                    <span>
+                      <strong>Begehung abschließen</strong>
+                      <small>Weiter zum Sichern & Analysieren</small>
+                    </span>
+                    <ArrowRight size={22} />
+                  </button>
+                </>
+              ) : state === "ready" ? (
+                <>
+                  <button className="walk-primary" onClick={start}>
+                    <Mic size={22} />
+                    Aufnahme starten
+                  </button>
+                  <button
+                    className="walk-secondary"
+                    onClick={() => audioInput.current?.click()}
+                  >
+                    <Upload size={16} />
+                    Vorhandenes Audio importieren
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    ref={saveButton}
+                    className="walk-primary"
+                    disabled={!online || !draft.audio?.size}
+                    onClick={() => process(true)}
+                  >
+                    <WandSparkles size={21} />
+                    In Drive sichern & analysieren
+                    <ArrowRight size={18} />
+                  </button>
+                  <p className="walk-save-hint">
+                    {!online
+                      ? "Sobald du online bist, kannst du hier fortfahren."
+                      : "Originale sichern → KI-Bericht erstellen → fertig"}
+                  </p>
+                </>
+              )}
+              {recording && (
+                <p className="walk-lock-status">
+                  {wakeLockState === "active"
+                    ? "Bildschirm bleibt wach · manuelles Sperren kann unterbrechen"
+                    : "Bildschirm bitte offen lassen · automatisches Wachhalten nicht aktiv"}
+                </p>
+              )}
+              <p className="walk-local-status">
+                {recording ? (
+                  checkpointMs > 0 ? (
+                    `Audio lokal gesichert bis ${formatTime(checkpointMs)}`
+                  ) : (
+                    "Erste Audiosicherung läuft …"
+                  )
+                ) : saved ? (
+                  <>
+                    <Check size={13} />
+                    Entwurf auf diesem Gerät gespeichert
+                  </>
+                ) : draft.audio ? (
+                  "Lokale Sicherung läuft …"
+                ) : (
+                  "Audio & Fotos → Bericht in Google Drive"
+                )}
+              </p>
+            </footer>
+          </>
+        )}
+      </div>
+      <input
+        type="file"
+        ref={audioInput}
+        hidden
+        accept="audio/*"
+        onChange={(e) => {
+          void importAudio(e.target.files?.[0]).catch((e) =>
+            setError(errorMessage(e)),
+          );
+          e.target.value = "";
+        }}
+      />
+      <input
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        hidden
+        ref={photoInput}
+        onChange={(e) => {
+          void addPhotos(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      {cameraOpen && (
+        <RecordingCamera
+          onClose={() => setCameraOpen(false)}
+          onFallback={() => {
+            setCameraOpen(false);
+            photoTime.current = null;
+            photoInput.current?.click();
+          }}
+          onCapture={async (blob) => {
+            if (current.current.photos.length >= MAX_PHOTOS)
+              throw new Error("Maximale Fotoanzahl erreicht.");
+            await persist(
+              reconcileDraftPhotos(current.current, [
+                ...current.current.photos,
+                {
+                  id: `photo_${crypto.randomUUID()}`,
+                  blob,
+                  relativeTimeMs: state === "review" ? null : elapsedNow(),
+                },
+              ]),
+            ).catch(() => {
+              // The photo is already retained in memory; the global storage
+              // error explains recovery. Do not invite a duplicate capture.
+            });
+          }}
+        />
+      )}
+      {sheet && (
+        <RecordingSheet
+          title={
+            sheet === "settings"
+              ? "Speicherort"
+              : sheet === "photos"
+                ? `Fotos (${draft.photos.length})`
+                : sheet === "leave"
+                  ? "Dein Bericht ist noch nicht gesichert"
+                  : "Weitere Optionen"
+          }
+          onClose={() => setSheet(null)}
+        >
+          {sheet === "settings" ? (
+            <DriveSettings />
+          ) : sheet === "photos" ? (
+            <>
+              <div className="walk-gallery">
+                {draft.photos.map((photo, i) => (
+                  <figure key={photo.id}>
+                    <BlobImage
+                      blob={photo.blob}
+                      alt={`Baustellenfoto ${i + 1}`}
+                    />
+                    <figcaption>
+                      <span>
+                        {photo.relativeTimeMs === null
+                          ? "Ohne Zeitstempel"
+                          : formatTime(photo.relativeTimeMs)}
+                      </span>
+                      <button
+                        className="walk-icon"
+                        aria-label={`Foto ${i + 1} entfernen`}
+                        onClick={() => {
+                          void persist(
+                            reconcileDraftPhotos(
+                              current.current,
+                              current.current.photos.filter(
+                                (p) => p.id !== photo.id,
+                              ),
+                            ),
+                          ).catch(() => {});
+                        }}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+              <button
+                className="walk-primary"
+                onClick={capturePhoto}
+                disabled={
+                  state === "ready" || draft.photos.length >= MAX_PHOTOS
+                }
+              >
+                <Camera size={20} />
+                Foto hinzufügen
+              </button>
+            </>
+          ) : sheet === "leave" ? (
+            <div className="walk-leave">
+              <p>
+                Audio und Fotos bleiben als lokaler Entwurf auf diesem Gerät.
+                Der Drive-Upload und die Analyse stehen noch aus.
+              </p>
+              <button
+                className="walk-primary"
+                onClick={() => {
+                  setSheet(null);
+                  saveButton.current?.focus();
+                }}
+              >
+                Zurück zum Sichern & Analysieren
+              </button>
+              <button
+                className="walk-secondary"
+                onClick={() => navigate("/dashboard")}
+              >
+                Bewusst als Entwurf verlassen
+              </button>
+            </div>
+          ) : (
+            <div className="walk-options">
+              {draft.audio && (
+                <>
+                  <button
                     onClick={() => {
-                      void persist(
-                        reconcileDraftPhotos(
-                          current.current,
-                          current.current.photos.filter((v) => v.id !== p.id),
-                        ),
-                      ).catch(() => {});
+                      download();
+                      setSheet(null);
                     }}
                   >
-                    <Trash2 size={14} />
+                    <Download size={19} />
+                    Audio herunterladen
                   </button>
-                </figure>
-              ))}
+                  <button
+                    disabled={!online}
+                    onClick={() => {
+                      setSheet(null);
+                      void process(false);
+                    }}
+                  >
+                    <CloudUpload size={19} />
+                    Nur in Drive sichern, ohne Analyse
+                  </button>
+                  <button onClick={() => setSheet("leave")}>
+                    <ArrowLeft size={19} />
+                    Als Entwurf später fortsetzen
+                  </button>
+                </>
+              )}
+              <button onClick={() => setSheet("settings")}>
+                <FolderOpen size={19} />
+                Speicherort ändern
+              </button>
+              <button
+                className="danger"
+                onClick={() => {
+                  void discard()
+                    .then(() => setSheet(null))
+                    .catch((e) => setError(errorMessage(e)));
+                }}
+              >
+                <Trash2 size={19} />
+                Entwurf verwerfen
+              </button>
             </div>
-            <button
-              className="btn photo-add"
-              disabled={
-                state === "ready" || !!busy || draft.photos.length >= MAX_PHOTOS
-              }
-              onClick={() => {
-                photoTime.current = state === "review" ? null : elapsedNow();
-                photoInput.current?.click();
-              }}
-            >
-              <Camera size={19} />
-              Foto hinzufügen
-            </button>
-            <input
-              type="file"
-              capture="environment"
-              accept="image/jpeg,image/png,image/webp"
-              hidden
-              ref={photoInput}
-              onChange={(e) => {
-                void addPhotos(e.target.files);
-                e.target.value = "";
-              }}
-            />
-          </section>
-          <div className="record-tip">
-            <span className="eyebrow">EIN GUTER BEFUND BEGINNT SO</span>
-            <p>
-              „Ich bin jetzt im Wohnzimmer. An der Nordwand ist ein Riss neben
-              dem Fenster.“
-            </p>
-            <span className="muted small">
-              Raumwechsel laut ansagen. Details fotografieren. Den Rest
-              strukturieren wir zusammen.
-            </span>
-          </div>
-        </aside>
-      </div>
-      {busy && <Busy text={busy} />}
-      {state === "review" && (
-        <div className="review-actions">
-          <div>
-            <h2>Bereit für den Bericht?</h2>
-            <p className="muted">
-              Originale zuerst in Drive sichern. Danach Räume und Befunde mit KI
-              aufbereiten.
-            </p>
-            <button
-              className="text-button"
-              onClick={() => setSettings(!settings)}
-              disabled={!!busy}
-            >
-              Speicherort in Drive wählen
-            </button>
-          </div>
-          <div className="actions">
-            <button
-              className="btn"
-              disabled={!!busy}
-              onClick={() => process(false)}
-            >
-              <CloudUpload size={18} />
-              Nur sichern
-            </button>
-            <button
-              className="btn btn-primary"
-              disabled={!!busy}
-              onClick={() => process(true)}
-            >
-              <WandSparkles size={18} />
-              Bericht erstellen
-            </button>
-          </div>
-        </div>
+          )}
+        </RecordingSheet>
       )}
-      {settings && <DriveSettings />}
-      {!recording && (
-        <button
-          className="btn btn-ghost danger"
-          disabled={!!busy}
-          onClick={() => void discard().catch((e) => setError(errorMessage(e)))}
-        >
-          <Trash2 size={16} />
-          Entwurf verwerfen
-        </button>
-      )}
-    </Shell>
+    </div>
   );
 }

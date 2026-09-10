@@ -14,14 +14,14 @@ import {
 import { auth } from "../lib/firebase";
 import { errorMessage } from "../lib/session";
 import { watchReports, saveReport, uid } from "../lib/reports";
-import { getDraft } from "../lib/local";
+import { listDrafts } from "../lib/local";
 import { Shell, Notice, Busy, Status, dateLabel } from "../components/UI";
 import type { Draft, ReportData } from "../types";
 import DriveSettings from "../components/DriveSettings";
 export default function Dashboard() {
   const [reports, setReports] = useState<ReportData[]>([]);
   const [dirty, setDirty] = useState<string[]>([]);
-  const [draft, setDraft] = useState<Draft>();
+  const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -29,8 +29,8 @@ export default function Dashboard() {
   const [settings, setSettings] = useState(false);
   const [syncing, setSyncing] = useState(false);
   useEffect(() => {
-    getDraft(uid())
-      .then(setDraft)
+    listDrafts(uid(), { includeAudio: false })
+      .then(setDrafts)
       .catch((e) => setError(errorMessage(e)));
     return watchReports(
       (data, unsynced) => {
@@ -106,7 +106,7 @@ export default function Dashboard() {
           </h1>
           <p className="muted">Jeder Befund. Jedes Detail. An einem Ort.</p>
         </div>
-        <Link to="/record" className="btn btn-primary">
+        <Link to="/record?new=1" className="btn btn-primary">
           <Plus size={20} />
           Neue Begehung
         </Link>
@@ -126,18 +126,26 @@ export default function Dashboard() {
           </div>
         </Notice>
       )}
-      {draft && (
-        <Link to="/record" className="draft-banner">
+      {drafts.map((draft) => (
+        <Link
+          key={draft.report.id}
+          to={`/record?draft=${draft.report.id}`}
+          className="draft-banner"
+          style={{ marginBottom: 10 }}
+        >
           <span className="draft-icon">
             <Mic />
           </span>
           <div>
-            <strong>Deine letzte Aufnahme wartet.</strong>
-            <p>Lokalen Entwurf fortsetzen · {draft.photos.length} Fotos</p>
+            <strong>{draft.report.title || "Deine Aufnahme wartet"}</strong>
+            <p>
+              Lokaler Entwurf · {draft.photos.length} Fotos · noch sichern &
+              analysieren
+            </p>
           </div>
           <ArrowRight />
         </Link>
-      )}
+      ))}
       <div className="stats">
         <div>
           <span>BEGEHUNGEN</span>
@@ -233,7 +241,7 @@ export default function Dashboard() {
               : "Starte eine Aufnahme, benenne den Bereich und beschreibe, was du siehst. Die KI hilft dir beim Strukturieren."}
           </p>
           {!search && filter === "all" && (
-            <Link className="btn btn-primary" to="/record">
+            <Link className="btn btn-primary" to="/record?new=1">
               <Mic size={18} />
               Erste Begehung starten
             </Link>
