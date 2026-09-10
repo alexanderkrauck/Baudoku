@@ -43,7 +43,7 @@ Configured target:
 | Google Cloud project | `gen-lang-client-0187125016` |
 | Region | `europe-west2` |
 | Existing Cloud Run service | `drive-sync-notes` |
-| Production URL | [Open Baudoku](https://drive-sync-notes-gma5yake7q-nw.a.run.app) |
+| Production URL | [Open Baudoku](https://baudoku.ai.studio/) |
 | Artifact Registry repository | `baudoku` |
 | GitHub environment | `production`, restricted to `main` |
 | Deployment identity | `baudoku-github-deploy@gen-lang-client-0187125016.iam.gserviceaccount.com` |
@@ -108,6 +108,10 @@ firebase deploy --only firestore:rules --project gen-lang-client-0187125016
 Build with `VITE_FIRESTORE_DATABASE_ID=YOUR_DATABASE_ID` so the client and rules deployment agree. The rules allow users to read/write only their own reports and Drive destination setting at `users/{firebaseUid}/settings/drive` and require the basic report shape; all other collections are denied. Firebase Storage rules or a Storage bucket are not required for the new capture workflow. Existing media previously saved only in Firebase Storage is not automatically migrated.
 
 ## Drive and data recovery
+
+### Individual defect status
+
+New analyses list individual defects within each room. Each defect starts as "Offen"; users can select "Erledigt" directly in the walkthrough report. This is independent of the report's analysis status and room tags. Status changes outside edit mode save immediately through the local/Firebase report store. In edit mode they are saved together with the other edits. Use "In Drive speichern" to update the Markdown and JSON copies; printing includes the current defect statuses. Existing reports without individual defects remain unchanged: use "Mangel hinzufügen" to enter their individual items, then save. No automatic reinterpretation of old room summaries is performed.
 
 AI requests resize photo copies to at most 1600 pixels and stay below Cloud Run’s 32 MiB HTTP/1 request limit. Original photos are uploaded to Drive unchanged.
 

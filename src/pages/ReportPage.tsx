@@ -311,6 +311,43 @@ export default function ReportPage() {
         rooms: view.rooms.map((r, i) => (i === index ? { ...r, ...patch } : r)),
       });
   }
+  async function changeDefectStatus(
+    roomIndex: number,
+    defectIndex: number,
+    status: "open" | "done",
+  ) {
+    if (!view || busy) return;
+    const defects = (view.rooms[roomIndex].defects || []).map((d, i) =>
+      i === defectIndex ? { ...d, status } : d,
+    );
+    if (edited) {
+      roomChange(roomIndex, { defects });
+      return;
+    }
+    const next = {
+      ...view,
+      driveSyncedAt: "",
+      rooms: view.rooms.map((r, i) =>
+        i === roomIndex ? { ...r, defects } : r,
+      ),
+    };
+    setBusy("Mängelstatus speichern …");
+    setError("");
+    setNotice("");
+    try {
+      const warning = await saveReport(next);
+      setReport(next);
+      setDirty(!!warning);
+      setNotice(
+        warning ||
+          "Mängelstatus gespeichert. Die Drive-Dateien kannst du mit „In Drive speichern“ aktualisieren.",
+      );
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy("");
+    }
+  }
   function assignPhoto(photoId: string, roomIndex: number) {
     if (view)
       setEdited({
@@ -614,6 +651,90 @@ export default function ReportPage() {
                               ))}
                         </div>
                       </div>
+                    </div>
+                    <div className="defect-list">
+                      <h3>Mängelstatus</h3>
+                      {!room.defects?.length && (
+                        <p className="small muted">
+                          Noch keine einzelnen Mängel erfasst. Ergänze sie aus
+                          dem Befund über „Mangel hinzufügen“.
+                        </p>
+                      )}
+                      {(room.defects || []).map((defect, j) => (
+                        <div className="defect-item" key={defect.id}>
+                          {edited ? (
+                            <input
+                              className="field"
+                              aria-label={`Mangel ${j + 1} in ${room.name}`}
+                              value={defect.description}
+                              onChange={(e) =>
+                                roomChange(i, {
+                                  defects: room.defects!.map((d, k) =>
+                                    k === j
+                                      ? { ...d, description: e.target.value }
+                                      : d,
+                                  ),
+                                })
+                              }
+                            />
+                          ) : (
+                            <span>{defect.description}</span>
+                          )}
+                          <label className="defect-status no-print">
+                            <span>Status</span>
+                            <select
+                              className="field"
+                              aria-label={`Status Mangel ${j + 1} in ${room.name}`}
+                              value={defect.status}
+                              onChange={(e) =>
+                                changeDefectStatus(
+                                  i,
+                                  j,
+                                  e.target.value as "open" | "done",
+                                )
+                              }
+                            >
+                              <option value="open">Offen</option>
+                              <option value="done">Erledigt</option>
+                            </select>
+                          </label>
+                          <span className="defect-print-status">
+                            {defect.status === "done" ? "Erledigt" : "Offen"}
+                          </span>
+                          {edited && (
+                            <button
+                              className="btn no-print"
+                              aria-label={`Mangel ${j + 1} in ${room.name} entfernen`}
+                              onClick={() =>
+                                roomChange(i, {
+                                  defects: room.defects!.filter(
+                                    (_, k) => k !== j,
+                                  ),
+                                })
+                              }
+                            >
+                              Entfernen
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        className="btn no-print"
+                        onClick={() =>
+                          roomChange(i, {
+                            defects: [
+                              ...(room.defects || []),
+                              {
+                                id: crypto.randomUUID(),
+                                description: "Neuer Mangel",
+                                status: "open",
+                              },
+                            ],
+                          })
+                        }
+                      >
+                        <Plus size={16} /> Mangel hinzufügen
+                      </button>
                     </div>
                     <label className="field-label">BEFUND</label>
                     {edited ? (
