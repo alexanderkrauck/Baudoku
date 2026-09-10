@@ -36,3 +36,13 @@ Validation details and live-service boundaries are recorded in [docs/VALIDATION.
 - [x] Restore npm resolution and regenerate compatible Bun lockfile.
 - [x] Run CI with both frozen installers and preserve AI Studio runtime configuration.
 - [x] Validate clean installs, push, and verify successful GitHub checks.
+
+## Protected release and automatic deployment
+
+- [x] Discover the actual AI Studio Cloud Run service and preserve its configuration.
+- [x] Set up GitHub OIDC federation and narrowly scoped deployment permissions.
+- [x] Add production container checks, deployment smoke tests and traffic rollback.
+- [x] Add exact-development-commit promotion checks and GitHub main protection.
+- [x] Document development-first work and production deployment in README.
+- [ ] Exercise development checks, protected PR merge and real automatic deployment.
+- [ ] Leave the local checkout and GitHub default branch on development.

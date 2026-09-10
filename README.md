@@ -2,6 +2,62 @@
 
 German-language construction walkthroughs: record audio, capture photos, generate a structured Gemini report, review it, and save the files in your Google Drive. Firebase handles sign-in and the report index; it is not the media storage backend.
 
+## Development, protected main, and automatic deployment
+
+**Do everyday work on `development`, the GitHub default branch. `main` is production.** GitHub enforces these rules through active repository rulesets; they are not merely conventions.
+
+- Direct pushes, force-pushes and deletion of `main` are blocked. There are no configured bypass actors, including administrators. Administrators can still deliberately change repository rules, as with any GitHub repository.
+- A PR into `main` must come from this repository's `development` branch. Feature branches and forks must first go through `development`.
+- The exact development commit being promoted must have a successful **Checks** push run on `development`.
+- The PR must be up to date with `main` and pass `verify (npm)`, `verify (bun)`, `container`, and `promotion-policy`. Unresolved review threads block merging. A separate human approval is not required for this single-maintainer repository.
+- Use merge commits for promotion; squash/rebase merges and automatic branch deletion are disabled. `development` accepts normal work pushes, but its deletion and force-pushes are blocked.
+- Pushing `development` or opening a PR never deploys. Merging into `main` runs checks again; only successful main push checks invoke production deployment.
+
+Typical work:
+
+```sh
+git switch development
+git pull --ff-only origin development
+# Edit and commit normally.
+git push origin development
+# Wait for the development Checks run to succeed.
+gh pr create --base main --head development --title "Release: describe the change" --body "Promote the tested development changes."
+gh pr checks --watch
+gh pr merge --merge
+# Bring the release merge back into development before more work.
+git fetch origin
+git merge origin/main
+git push origin development
+```
+
+For optional feature branches, branch from `development` (for example `codex/my-change`) and target `development` with their PRs. If a promotion check ran before development checks finished, rerun it after the exact development commit is green. Do not bypass protection or push directly to main to fix a failed check.
+
+### Production deployment
+
+The reusable `.github/workflows/deploy.yml` is called by Checks only for `main` pushes after every required job passes. It builds a production container from the tested commit, pushes its immutable digest to Artifact Registry, deploys a no-traffic candidate, checks health/Gemini configuration/SPA/PWA routes, and then routes live traffic to it. Failed candidate checks leave production unchanged; failed live smoke tests restore the previous traffic split. Queued older commits cannot supersede newer main commits. There is no unchecked manual deployment trigger.
+
+Configured target:
+
+| Setting | Value |
+| --- | --- |
+| Google Cloud project | `gen-lang-client-0187125016` |
+| Region | `europe-west2` |
+| Existing Cloud Run service | `drive-sync-notes` |
+| Production URL | [Open Baudoku](https://drive-sync-notes-gma5yake7q-nw.a.run.app) |
+| Artifact Registry repository | `baudoku` |
+| GitHub environment | `production`, restricted to `main` |
+| Deployment identity | `baudoku-github-deploy@gen-lang-client-0187125016.iam.gserviceaccount.com` |
+
+The production environment stores non-secret configuration variables: `GCP_PROJECT_ID`, `GCP_REGION`, `CLOUD_RUN_SERVICE`, `GCP_ARTIFACT_REPOSITORY`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, and `GCP_DEPLOY_SERVICE_ACCOUNT`. Authentication uses Google Workload Identity Federation with repository/owner IDs and the main deployment workflow restricted in its trust condition. No service-account JSON key is stored in GitHub. The deployer can update this Cloud Run service, publish into this artifact repository, and use the service's existing runtime identity.
+
+Existing Cloud Run environment variables, Gemini credentials, service URL, runtime identity, IAM and scaling configuration are retained. Container revisions replace AI Studio's source overlay; the app's Express/Vite development workflow, media permissions and AI Studio configuration remain compatible. Use development for AI Studio-originated code changes too. Manual AI Studio production deployment is a separate route that would bypass this release pipeline, so production releases should use the protected GitHub flow.
+
+To retry a deployment failure, rerun failed jobs in the main Checks run after resolving its cause. The deployment summary records the revision and previous traffic configuration. For an emergency rollback using the listed previous revision:
+
+```sh
+gcloud run services update-traffic drive-sync-notes --project=gen-lang-client-0187125016 --region=europe-west2 --to-revisions=PREVIOUS_REVISION=100
+```
+
 ## Run locally
 
 Use Node.js 22 or newer and npm. `package-lock.json` is the authoritative dependency lockfile. The synchronized `bun.lock` supports Bun-based installs, including AI Studio environments. CI checks clean, frozen installs with both npm and Bun, then runs the same Node.js build and tests. After dependency updates, regenerate `package-lock.json` with npm, remove the old `bun.lock`, and run `bun install --lockfile-only` to migrate the npm resolution; commit both lockfiles. The `qs` override selects the patched 6.16 release while Express 4 pins an older minor range.
