@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import DefectOverview from "../components/DefectOverview";
+import ReportHeader from "../components/ReportHeader";
 import type { ReportData } from "../types";
 
 /** Development-only, isolated in-memory preview. Never writes to Firebase or Drive. */
@@ -26,17 +27,14 @@ export default function PreviewPage() {
         bleiben unverändert
       </div>
       <main style={{ maxWidth: 1120, margin: "0 auto", padding: "24px" }}>
-        <span className="eyebrow">BAUDOKU / MÄNGELBERICHT</span>
-        <h1>{report?.title || "Begehung laden"}</h1>
-        {report && (
-          <p className="small muted">
-            Begehung vom {new Date(report.date).toLocaleDateString("de-AT")}
-          </p>
-        )}
+        {report ? <ReportHeader report={report} /> : <h1>Begehung laden</h1>}
         {error && <p role="alert">{error}</p>}
         {report && (
           <>
-            <p className="muted">{report.summary}</p>
+            <details className="no-print">
+              <summary>Zusammenfassung anzeigen</summary>
+              <p className="muted">{report.summary}</p>
+            </details>
             <div className="split no-print">
               <p>
                 Gewerke, Top/Raum, Status und Fotozuordnung ausprobieren. Die

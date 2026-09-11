@@ -269,8 +269,8 @@ export default function DefectOverview({
                       <h4>{d.description}</h4>
                       <p className="defect-meta">
                         {d.trade} ·{" "}
-                        <strong>
-                          {d.status === "done" ? "Erledigt" : "Offen"}
+                        <strong className={`defect-status-badge ${d.status}`}>
+                          {d.status === "done" ? "ERLEDIGT" : "OFFEN"}
                         </strong>
                       </p>
                     </>
@@ -279,7 +279,10 @@ export default function DefectOverview({
                     <strong>{d.location}</strong>
                     <p>{d.description}</p>
                     <span>
-                      {d.trade} · {d.status === "done" ? "Erledigt" : "Offen"}
+                      {d.trade} ·{" "}
+                      <strong className={`defect-status-badge ${d.status}`}>
+                        {d.status === "done" ? "ERLEDIGT" : "OFFEN"}
+                      </strong>
                     </span>
                   </div>
                 </div>

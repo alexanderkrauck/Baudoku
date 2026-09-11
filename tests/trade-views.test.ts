@@ -62,6 +62,6 @@ describe("trade work queue and report", () => {
     expect(report).not.toContain("textarea");
     expect(report).not.toContain("checkbox");
     expect(report).toContain("SONDERGEWERK");
-    expect(report).toContain("Erledigt");
+    expect(report).toContain("ERLEDIGT");
   });
 });

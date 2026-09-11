@@ -1967,3 +1967,103 @@ textarea {
     display: none !important;
   }
 }
+
+.compact-report-header {
+  margin: 8px 0 16px;
+  border-bottom: 2px solid #355d4b;
+  padding-bottom: 10px;
+}
+.report-facts {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) 1.2fr 1fr 0.8fr;
+  gap: 16px;
+  margin: 10px 0 0;
+}
+.report-facts dt {
+  font-size: 11px;
+  color: #627068;
+}
+.report-facts dd {
+  margin: 3px 0 0;
+  font-size: 17px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.defect-status-badge {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+.defect-status-badge.open {
+  background: #fff0cc;
+  color: #744c0c;
+  border-color: #bc8a26;
+}
+.defect-status-badge.done {
+  background: #e4f1e7;
+  color: #245b36;
+  border-color: #568562;
+}
+@media (max-width: 650px) {
+  .report-facts {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+}
+@media print {
+  .print-only {
+    display: block;
+  }
+  .compact-report-header {
+    margin: 0 0 4mm;
+    padding-bottom: 3mm;
+    break-inside: avoid;
+  }
+  .report-facts {
+    display: grid;
+    grid-template-columns: 2fr 1.2fr 1fr 0.8fr;
+    gap: 4mm;
+    margin: 2mm 0 0;
+  }
+  .report-facts dt {
+    font-size: 8pt;
+  }
+  .report-facts dd {
+    font-size: 10pt;
+  }
+  .trade-group {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+  .trade-group h3 {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+  .trade-defect {
+    display: table !important;
+    table-layout: fixed;
+    width: 100%;
+    break-inside: avoid-page !important;
+    page-break-inside: avoid !important;
+  }
+  .trade-defect-content,
+  .trade-defect > .defect-gallery {
+    display: table-cell;
+    vertical-align: top;
+  }
+  .trade-defect > .defect-gallery {
+    width: 58mm;
+    padding-left: 5mm;
+  }
+  .trade-defect figure {
+    break-inside: avoid;
+  }
+  .defect-status-badge {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

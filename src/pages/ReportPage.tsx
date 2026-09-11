@@ -27,6 +27,7 @@ import {
   requestDriveSession,
 } from "../lib/session";
 import DefectOverview from "../components/DefectOverview";
+import ReportHeader from "../components/ReportHeader";
 import {
   analyzeDraft,
   backupDraft,
@@ -440,7 +441,9 @@ export default function ReportPage() {
         disabled={!!busy}
         style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
       >
-        <div className="report-title">
+        <div
+          className={`report-title no-print ${viewMode === "report" ? "report-original" : ""}`}
+        >
           <div className="split">
             <span className="eyebrow">
               BEGEHUNGSBERICHT / {dateLabel(view.date)}
@@ -468,6 +471,9 @@ export default function ReportPage() {
             </span>
             <span>KI-Entwurf · bitte fachlich prüfen</span>
           </div>
+        </div>
+        <div className={viewMode === "edit" ? "print-only" : ""}>
+          <ReportHeader report={view} />
         </div>
         <div className="report-actions no-print">
           <div className="actions">
@@ -561,7 +567,9 @@ export default function ReportPage() {
             </button>
           </div>
         )}
-        <section className="summary-panel">
+        <section
+          className={`summary-panel no-print ${viewMode === "report" ? "report-original" : ""}`}
+        >
           <span className="eyebrow">AUF EINEN BLICK</span>
           {edited && viewMode === "edit" ? (
             <textarea
