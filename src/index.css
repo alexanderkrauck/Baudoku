@@ -2338,3 +2338,28 @@ body:has(.report-view) main {
     padding: 1mm;
   }
 }
+/* Orientation is measured from the original image, including Drive images. */
+.report-photos img[data-orientation="landscape"] {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+}
+.report-photos img[data-orientation="portrait"] {
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  object-fit: contain;
+}
+@media print {
+  .report-photos img[data-orientation="landscape"] {
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+  .report-photos img[data-orientation="portrait"] {
+    width: 100% !important;
+    height: auto !important;
+    max-height: 48mm !important;
+  }
+}

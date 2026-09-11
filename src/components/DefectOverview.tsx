@@ -200,7 +200,18 @@ export default function DefectOverview({
                         {d.status === "done" ? "ERLEDIGT" : "OFFEN"}
                       </strong>
                     </td>
-                    <td className="report-photos">
+                    <td
+                      className="report-photos"
+                      onLoadCapture={(event) => {
+                        const image = event.target;
+                        if (image instanceof HTMLImageElement) {
+                          image.dataset.orientation =
+                            image.naturalHeight > image.naturalWidth
+                              ? "portrait"
+                              : "landscape";
+                        }
+                      }}
+                    >
                       {d.photoIds.length ? (
                         d.photoIds.map((id) => (
                           <figure key={id}>
