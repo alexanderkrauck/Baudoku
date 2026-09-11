@@ -1,6 +1,7 @@
 export interface Defect {
   id: string;
   trade?: string;
+  tradeSuggestion?: string;
   location?: string;
   photoIds?: string[];
   description: string;

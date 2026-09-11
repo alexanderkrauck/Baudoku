@@ -5,7 +5,7 @@ import type { ReportData } from "../types";
 /** Development-only, isolated in-memory preview. Never writes to Firebase or Drive. */
 export default function PreviewPage() {
   const [report, setReport] = useState<ReportData>();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
     fetch("/__preview-assets/report.json")
@@ -21,28 +21,51 @@ export default function PreviewPage() {
   }, []);
   return (
     <>
-      <div className="preview-banner">
+      <div className="preview-banner no-print">
         DEVELOPMENT-PREVIEW · Änderungen nur in dieser Ansicht · Live-Daten
         bleiben unverändert
       </div>
       <main style={{ maxWidth: 1120, margin: "0 auto", padding: "24px" }}>
-        <span className="eyebrow">BAUDOKU / TESTVERSION</span>
+        <span className="eyebrow">BAUDOKU / MÄNGELBERICHT</span>
         <h1>{report?.title || "Begehung laden"}</h1>
+        {report && (
+          <p className="small muted">
+            Begehung vom {new Date(report.date).toLocaleDateString("de-AT")}
+          </p>
+        )}
         {error && <p role="alert">{error}</p>}
         {report && (
           <>
             <p className="muted">{report.summary}</p>
-            <div className="split">
+            <div className="split no-print">
               <p>
                 Gewerke, Top/Raum, Status und Fotozuordnung ausprobieren. Die
                 Beispielzuordnung ist eine lokale Kopie deines Berichts.
               </p>
-              <button
-                className="btn btn-primary"
-                onClick={() => setEditing(!editing)}
-              >
-                {editing ? "Bearbeitung fertig" : "Felder bearbeiten"}
-              </button>
+              <div className="actions">
+                <button
+                  className="btn"
+                  aria-pressed={editing}
+                  onClick={() => setEditing(true)}
+                >
+                  Bearbeiten
+                </button>
+                <button
+                  className="btn"
+                  aria-pressed={!editing}
+                  onClick={() => setEditing(false)}
+                >
+                  Bericht
+                </button>
+                {!editing && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => window.print()}
+                  >
+                    PDF / Drucken
+                  </button>
+                )}
+              </div>
             </div>
             <DefectOverview
               rooms={report.rooms}
@@ -73,7 +96,7 @@ export default function PreviewPage() {
                 />
               )}
             />
-            <details>
+            <details className="no-print">
               <summary>
                 Ursprüngliche Raumdokumentation ({report.rooms.length} Bereiche)
               </summary>

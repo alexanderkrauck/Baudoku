@@ -211,6 +211,8 @@ export async function listDriveReports(
                       typeof d.id === "string" &&
                       typeof d.description === "string" &&
                       (d.trade === undefined || typeof d.trade === "string") &&
+                      (d.tradeSuggestion === undefined ||
+                        typeof d.tradeSuggestion === "string") &&
                       (d.location === undefined ||
                         typeof d.location === "string") &&
                       (d.photoIds === undefined ||

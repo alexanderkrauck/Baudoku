@@ -84,7 +84,8 @@ describe("individual defect status", () => {
       ["p"],
     );
     expect(result.rooms[0].defects![0]).toMatchObject({
-      trade: "Maler",
+      trade: "",
+      tradeSuggestion: "Maler",
       location: "Top 3",
       photoIds: ["p"],
     });
@@ -94,7 +95,8 @@ describe("individual defect status", () => {
       date: "2026-09-10",
       photos: [{ id: "p", driveId: "drive-p", relativeTimeMs: 0 }],
     });
-    expect(md).toContain("### Maler");
+    expect(md).toContain("### Nicht zugeordnet");
+    expect(md).not.toContain("### Maler");
     expect(md).toContain("| Top 3 | Riss | Offen |");
     expect(md).toContain("drive.google.com/file/d/drive-p/view");
   });
