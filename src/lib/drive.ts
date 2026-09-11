@@ -1,4 +1,4 @@
-import { rememberToken } from "./session";
+import { rememberToken, driveToken } from "./session";
 // A cached token alone does not prove the Drive scope was granted. Check it
 // before capture without creating folders or reading filenames/media.
 export async function verifyDriveAccess(token: string): Promise<void> {
@@ -29,7 +29,7 @@ async function request(url: string, token: string, init: RequestInit = {}) {
   });
   if (!response.ok) {
     if (response.status === 401) {
-      rememberToken(undefined);
+      if (driveToken() === token) rememberToken(undefined);
       throw new Error(
         "Die Drive-Verbindung ist abgelaufen. Bitte Google Drive erneut verbinden.",
       );
@@ -210,6 +210,16 @@ export async function listDriveReports(
                       d &&
                       typeof d.id === "string" &&
                       typeof d.description === "string" &&
+                      (d.trade === undefined || typeof d.trade === "string") &&
+                      (d.tradeSuggestion === undefined ||
+                        typeof d.tradeSuggestion === "string") &&
+                      (d.location === undefined ||
+                        typeof d.location === "string") &&
+                      (d.photoIds === undefined ||
+                        (Array.isArray(d.photoIds) &&
+                          d.photoIds.every(
+                            (id: unknown) => typeof id === "string",
+                          ))) &&
                       ["open", "done"].includes(d.status),
                   ))) &&
               (!room.tags ||

@@ -34,8 +34,13 @@ export const reportSchema = {
             type: "array",
             items: {
               type: "object",
-              required: ["description"],
-              properties: { description: { type: "string" } },
+              required: ["description", "trade", "location", "photoIds"],
+              properties: {
+                description: { type: "string" },
+                trade: { type: "string" },
+                location: { type: "string" },
+                photoIds: { type: "array", items: { type: "string" } },
+              },
             },
           },
           summary: { type: "string" },
@@ -106,7 +111,16 @@ export function validateAnalysis(
       (!Array.isArray(r.defects) ||
         r.defects.some(
           (d: any) =>
-            !d || typeof d.description !== "string" || !d.description.trim(),
+            !d ||
+            typeof d.description !== "string" ||
+            !d.description.trim() ||
+            (d.trade !== undefined && typeof d.trade !== "string") ||
+            (d.tradeSuggestion !== undefined &&
+              typeof d.tradeSuggestion !== "string") ||
+            (d.location !== undefined && typeof d.location !== "string") ||
+            (d.photoIds !== undefined &&
+              (!Array.isArray(d.photoIds) ||
+                d.photoIds.some((id: unknown) => typeof id !== "string"))),
         ))
     )
       throw new Error("Die KI-Antwort enthält ungültige Mängel.");
@@ -122,6 +136,28 @@ export function validateAnalysis(
               id: `defect-${i + 1}`,
               description: d.description.trim(),
               status: "open" as const,
+              ...(d.tradeSuggestion || d.trade
+                ? {
+                    trade: "",
+                    tradeSuggestion: String(
+                      d.tradeSuggestion || d.trade,
+                    ).trim(),
+                  }
+                : {}),
+              ...(d.location !== undefined
+                ? { location: d.location.trim() }
+                : {}),
+              ...(d.photoIds !== undefined
+                ? {
+                    photoIds: [
+                      ...new Set<string>(
+                        d.photoIds.filter((id: string) =>
+                          photoIds.includes(id),
+                        ),
+                      ),
+                    ],
+                  }
+                : {}),
             })),
           }
         : {}),

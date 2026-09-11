@@ -6,6 +6,8 @@ German-language construction walkthroughs: record audio, capture photos, generat
 
 **Do everyday work on `development`, the GitHub default branch. `main` is production.** GitHub enforces these rules through active repository rulesets; they are not merely conventions.
 
+For Alfred's workflow, implement and test changes on development, open the local development preview for review, and wait for explicit release approval. Never infer release approval from a feature request. The development-only `/__preview` page uses ignored `output/preview` fixtures and browser-local edits retained across reloads; it never writes to Firebase or Drive. Start its server with `HOST=127.0.0.1` and `PORT=3001` for local review. Keep private fixtures out of commits. Production does not expose the preview asset route.
+
 - Direct pushes, force-pushes and deletion of `main` are blocked. There are no configured bypass actors, including administrators. Administrators can still deliberately change repository rules, as with any GitHub repository.
 - A PR into `main` must come from this repository's `development` branch. Feature branches and forks must first go through `development`.
 - The exact development commit being promoted must have a successful **Checks** push run on `development`.
@@ -109,7 +111,13 @@ Build with `VITE_FIRESTORE_DATABASE_ID=YOUR_DATABASE_ID` so the client and rules
 
 ## Drive and data recovery
 
-### Individual defect status
+### Defects grouped by trade
+
+Use the separate Bearbeiten and Bericht views. The edit view includes a central trade selector (`src/lib/trades.ts`), new custom trades, and a highlighted unassigned queue. Existing assigned trades remain available; no legacy assignments are changed. New AI trade values become `tradeSuggestion` only and are not grouped as an assignment until a user explicitly confirms or selects a trade. The report view is read-only, supports trade/status filters and compact A4 printing. Unassigned preview fixtures are intentionally preserved for manual testing.
+
+Each new defect has a trade, top/room, description, open/done status and photo IDs. The primary view groups by trade, then top/room; the complete original room documentation remains below. Older defect records use their room name as a display fallback and remain unassigned to a trade/photos until explicitly edited. Missing values are never destructively migrated.
+
+Report photos now react to authorization changes, focus, network reconnection and token expiry. Same-origin tabs signed into the same Firebase user may share an existing valid Drive token through BroadcastChannel without extending its original expiration. A stale failed request cannot clear a newer token. No permanent credential or refresh token is stored. The connect button is shown only when no valid token is available. The existing Firebase popup flow does not provide a Google Drive refresh token: unattended renewal after expiry would require a separate server-side OAuth code flow and protected refresh-token storage, which is not configured by this change. See [Google token expiration guidance](https://developers.google.com/identity/oauth2/web/guides/use-token-model#token_expiration).
 
 New analyses list individual defects within each room. Each defect starts as "Offen"; users can select "Erledigt" directly in the walkthrough report. This is independent of the report's analysis status and room tags. Status changes outside edit mode save immediately through the local/Firebase report store. In edit mode they are saved together with the other edits. Use "In Drive speichern" to update the Markdown and JSON copies; printing includes the current defect statuses. Existing reports without individual defects remain unchanged: use "Mangel hinzufügen" to enter their individual items, then save. No automatic reinterpretation of old room summaries is performed.
 

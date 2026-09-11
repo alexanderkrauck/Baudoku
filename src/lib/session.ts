@@ -10,6 +10,63 @@ const SESSION_KEY = "baudoku:drive-session";
 const TOKEN_LIFETIME_MS = 50 * 60 * 1000;
 type DriveSession = { token: string; owner: string; expiresAt: number };
 let session: DriveSession | null = null;
+const SESSION_EVENT = "baudoku:drive-session";
+const channel =
+  typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
+    ? new BroadcastChannel("baudoku:drive-authorization")
+    : null;
+function changed() {
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event(SESSION_EVENT));
+}
+// Only share an unexpired token with tabs on this origin signed into the same user.
+// Tokens remain in sessionStorage; no refresh token or permanent credential is added.
+if (channel)
+  channel.onmessage = ({ data }) => {
+    const owner = auth.currentUser?.uid;
+    if (!owner || data?.owner !== owner) return;
+    if (data.type === "request") {
+      if (driveToken())
+        channel.postMessage({ type: "session", owner, session });
+    } else if (data.type === "session") {
+      const candidate = data.session as DriveSession | undefined;
+      if (
+        candidate?.owner !== owner ||
+        typeof candidate.token !== "string" ||
+        !candidate.token ||
+        !Number.isFinite(candidate.expiresAt) ||
+        candidate.expiresAt <= Date.now() ||
+        candidate.expiresAt > Date.now() + TOKEN_LIFETIME_MS
+      )
+        return;
+      if (!session || candidate.expiresAt > session.expiresAt) {
+        session = candidate;
+        saveSession();
+        changed();
+      }
+    } else if (data.type === "clear" && session?.token === data.token) {
+      session = null;
+      saveSession();
+      changed();
+    }
+  };
+export function requestDriveSession() {
+  const owner = auth.currentUser?.uid;
+  if (owner && !driveToken()) channel?.postMessage({ type: "request", owner });
+}
+export function watchDriveSession(listener: () => void) {
+  window.addEventListener(SESSION_EVENT, listener);
+  window.addEventListener("focus", listener);
+  document.addEventListener("visibilitychange", listener);
+  const timer = window.setInterval(listener, 30000);
+  requestDriveSession();
+  return () => {
+    window.removeEventListener(SESSION_EVENT, listener);
+    window.removeEventListener("focus", listener);
+    document.removeEventListener("visibilitychange", listener);
+    window.clearInterval(timer);
+  };
+}
 
 function saveSession() {
   try {
@@ -21,14 +78,21 @@ function saveSession() {
 }
 
 export function rememberToken(token: string | undefined) {
+  const previous = session;
   const owner = auth.currentUser?.uid;
   session =
     token && owner
       ? { token, owner, expiresAt: Date.now() + TOKEN_LIFETIME_MS }
       : null;
   saveSession();
-  if (typeof window !== "undefined")
-    window.dispatchEvent(new Event("baudoku:drive-session"));
+  changed();
+  if (session) channel?.postMessage({ type: "session", owner, session });
+  else if (previous)
+    channel?.postMessage({
+      type: "clear",
+      owner: previous.owner,
+      token: previous.token,
+    });
 }
 
 export function driveToken(minValidityMs = 0): string | null {

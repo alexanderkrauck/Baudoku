@@ -18,6 +18,11 @@ async function startServer() {
   );
 
   if (process.env.NODE_ENV !== "production") {
+    // Local preview fixtures are ignored by Git and are never served in production.
+    app.use(
+      "/__preview-assets",
+      express.static(path.join(process.cwd(), "output", "preview")),
+    );
     const { createServer } = await import("vite");
     const vite = await createServer({
       server: { middlewareMode: true },
@@ -48,7 +53,7 @@ async function startServer() {
     );
   }
   const port = Number(process.env.PORT || 3000);
-  const server = app.listen(port, "0.0.0.0", () =>
+  const server = app.listen(port, process.env.HOST || "0.0.0.0", () =>
     console.log(`BauDoku running on port ${port}`),
   );
   server.requestTimeout = 5 * 60 * 1000;

@@ -19,7 +19,16 @@ import {
 import type { ReportData, RoomReport } from "../types";
 import { watchReports, saveReport, uid } from "../lib/reports";
 import { getDraft, putDraft } from "../lib/local";
-import { connectGoogle, driveToken, errorMessage } from "../lib/session";
+import {
+  connectGoogle,
+  driveToken,
+  errorMessage,
+  watchDriveSession,
+  requestDriveSession,
+} from "../lib/session";
+import DefectOverview from "../components/DefectOverview";
+import ReportHeader from "../components/ReportHeader";
+import ReportFooter from "../components/ReportFooter";
 import {
   analyzeDraft,
   backupDraft,
@@ -49,6 +58,12 @@ function Photo({
 }) {
   const [blob, setBlob] = useState<Blob>();
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const retry = () => setAttempt((value) => value + 1);
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, []);
   useEffect(() => {
     let active = true;
     setBlob(undefined);
@@ -64,7 +79,7 @@ function Photo({
     return () => {
       active = false;
     };
-  }, [driveId, token]);
+  }, [driveId, token, attempt]);
   return (
     <div className="report-photo">
       {blob ? (
@@ -86,6 +101,14 @@ function Photo({
                   ? "Drive verbinden, um Foto zu laden"
                   : "Foto laden …")}
           </span>
+          {error && token && (
+            <button
+              className="btn no-print"
+              onClick={() => setAttempt((value) => value + 1)}
+            >
+              Foto erneut laden
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -95,12 +118,21 @@ export default function ReportPage() {
   const { id } = useParams();
   const [report, setReport] = useState<ReportData>();
   const [edited, setEdited] = useState<ReportData>();
+  const [viewMode, setViewMode] = useState<"edit" | "report">("edit");
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [token, setToken] = useState(driveToken);
+  useEffect(
+    () =>
+      watchDriveSession(() => {
+        setToken(driveToken());
+        requestDriveSession();
+      }),
+    [],
+  );
   const [activeRoom, setActiveRoom] = useState("all");
   const [tag, setTag] = useState("all");
   useEffect(
@@ -410,14 +442,16 @@ export default function ReportPage() {
         disabled={!!busy}
         style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
       >
-        <div className="report-title">
+        <div
+          className={`report-title no-print ${viewMode === "report" ? "report-original" : ""}`}
+        >
           <div className="split">
             <span className="eyebrow">
               BEGEHUNGSBERICHT / {dateLabel(view.date)}
             </span>
             <Status report={view} local={dirty} />
           </div>
-          {edited ? (
+          {edited && viewMode === "edit" ? (
             <input
               className="title-input"
               aria-label="Berichtstitel"
@@ -438,6 +472,9 @@ export default function ReportPage() {
             </span>
             <span>KI-Entwurf · bitte fachlich prüfen</span>
           </div>
+        </div>
+        <div className={viewMode === "edit" ? "print-only" : ""}>
+          <ReportHeader report={view} />
         </div>
         <div className="report-actions no-print">
           <div className="actions">
@@ -469,7 +506,10 @@ export default function ReportPage() {
             ) : (
               <button
                 className="btn"
-                onClick={() => setEdited(structuredClone(view))}
+                onClick={() => {
+                  setViewMode("edit");
+                  setEdited(structuredClone(view));
+                }}
                 disabled={!!busy}
               >
                 <Edit3 size={17} />
@@ -479,7 +519,7 @@ export default function ReportPage() {
             <button
               className="btn"
               onClick={() => window.print()}
-              disabled={!!edited}
+              disabled={viewMode !== "report"}
             >
               <Printer size={17} />
               PDF / Drucken
@@ -528,9 +568,11 @@ export default function ReportPage() {
             </button>
           </div>
         )}
-        <section className="summary-panel">
+        <section
+          className={`summary-panel no-print ${viewMode === "report" ? "report-original" : ""}`}
+        >
           <span className="eyebrow">AUF EINEN BLICK</span>
-          {edited ? (
+          {edited && viewMode === "edit" ? (
             <textarea
               className="field"
               aria-label="Gesamtzusammenfassung"
@@ -544,358 +586,412 @@ export default function ReportPage() {
         {photos.length > 0 && (
           <div className="connect-photos no-print">
             <span>
-              Die Fotos sind privat in deinem Google Drive gespeichert.
+              {token
+                ? "Google Drive verbunden. Fotos werden automatisch geladen."
+                : "Für die privaten Fotos ist eine Google-Drive-Bestätigung erforderlich."}
             </span>
-            <button className="btn" onClick={connect}>
-              <RefreshCw size={16} />
-              {token ? "Drive-Verbindung erneuern" : "Drive verbinden"}
-            </button>
+            {!token && (
+              <button className="btn" onClick={connect}>
+                <RefreshCw size={16} />
+                Google Drive verbinden
+              </button>
+            )}
           </div>
         )}
-        {view.rooms.length > 0 && (
-          <div className="report-body">
-            <aside className="room-nav no-print">
-              <span className="eyebrow">BEREICHE</span>
-              <button
-                className={activeRoom === "all" ? "active" : ""}
-                onClick={() => setActiveRoom("all")}
-              >
-                Alle Bereiche <span>{view.rooms.length}</span>
-              </button>
-              {view.rooms.map((r, i) => (
+        <div className="actions no-print">
+          <button
+            className="btn"
+            aria-pressed={viewMode === "edit"}
+            onClick={() => setViewMode("edit")}
+          >
+            Bearbeiten
+          </button>
+          <button
+            className="btn"
+            aria-pressed={viewMode === "report"}
+            onClick={() => setViewMode("report")}
+          >
+            Bericht
+          </button>
+        </div>
+        <DefectOverview
+          rooms={view.rooms}
+          photos={photos}
+          editing={viewMode === "edit"}
+          onChange={(i, j, patch) => {
+            if (!edited && patch.status)
+              void changeDefectStatus(i, j, patch.status);
+            else
+              roomChange(i, {
+                defects: view.rooms[i].defects!.map((d, k) =>
+                  k === j ? { ...d, ...patch } : d,
+                ),
+              });
+          }}
+          renderPhoto={(photoId) => (
+            <Photo
+              id={photoId}
+              driveId={photos.find((p) => p.id === photoId)?.driveId}
+              token={token}
+            />
+          )}
+        />
+        {viewMode === "report" && <ReportFooter date={view.date} />}
+        <div
+          className={`original-documentation ${viewMode === "report" ? "report-original" : ""}`}
+        >
+          <h2>Raumdokumentation</h2>
+          <p className="muted">
+            Ursprüngliche Befunde, Transkripte und Raumfotos bleiben vollständig
+            erhalten.
+          </p>
+          {view.rooms.length > 0 && (
+            <div className="report-body">
+              <aside className="room-nav no-print">
+                <span className="eyebrow">BEREICHE</span>
                 <button
-                  key={i}
-                  className={activeRoom === String(i) ? "active" : ""}
-                  onClick={() => setActiveRoom(String(i))}
+                  className={activeRoom === "all" ? "active" : ""}
+                  onClick={() => setActiveRoom("all")}
                 >
-                  <span>
-                    {String(i + 1).padStart(2, "0")} {r.name}
-                  </span>
-                  <span>{r.photoIds.length}</span>
+                  Alle Bereiche <span>{view.rooms.length}</span>
                 </button>
-              ))}
-              <label className="field-label" htmlFor="tag-filter">
-                BEFUNDE FILTERN
-              </label>
-              <select
-                id="tag-filter"
-                className="field"
-                value={tag}
-                onChange={(e) => setTag(e.target.value)}
-              >
-                <option value="all">Alle Tags</option>
-                {REPORT_TAGS.map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-              <p className="small muted">
-                Raumwechsel und Zuordnung basieren auf deinen gesprochenen
-                Beobachtungen.
-              </p>
-            </aside>
-            <div className="rooms">
-              {view.rooms.map((room, i) => {
-                const visible =
-                  (activeRoom === "all" || activeRoom === String(i)) &&
-                  (tag === "all" || room.tags?.includes(tag));
-                return (
-                  <section
-                    className={`panel room-section ${visible ? "" : "filtered-out"}`}
+                {view.rooms.map((r, i) => (
+                  <button
                     key={i}
+                    className={activeRoom === String(i) ? "active" : ""}
+                    onClick={() => setActiveRoom(String(i))}
                   >
-                    <div className="room-heading">
-                      <span className="room-number">
-                        {String(i + 1).padStart(2, "0")}
-                      </span>
-                      <div>
-                        {edited ? (
-                          <input
-                            className="field"
-                            aria-label={`Raum ${i + 1} Name`}
-                            value={room.name}
-                            onChange={(e) =>
-                              roomChange(i, { name: e.target.value })
-                            }
-                          />
-                        ) : (
-                          <h2>{room.name}</h2>
-                        )}
-                        <div className="tag-list">
-                          {edited
-                            ? REPORT_TAGS.map((t) => (
-                                <button
-                                  key={t}
-                                  className={`tag ${room.tags?.includes(t) ? "selected" : ""}`}
-                                  aria-pressed={room.tags?.includes(t) || false}
-                                  onClick={() =>
-                                    roomChange(i, {
-                                      tags: room.tags?.includes(t)
-                                        ? room.tags.filter((v) => v !== t)
-                                        : [...(room.tags || []), t],
-                                    })
-                                  }
-                                >
-                                  {room.tags?.includes(t) && (
-                                    <Check size={12} />
-                                  )}{" "}
-                                  {t}
-                                </button>
-                              ))
-                            : (room.tags || []).map((t) => (
-                                <span
-                                  className={`tag tag-${t === "Mangel" ? "defect" : t === "Erledigt" ? "done" : "default"}`}
-                                  key={t}
-                                >
-                                  {t}
-                                </span>
-                              ))}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="defect-list">
-                      <h3>Mängelstatus</h3>
-                      {!room.defects?.length && (
-                        <p className="small muted">
-                          Noch keine einzelnen Mängel erfasst. Ergänze sie aus
-                          dem Befund über „Mangel hinzufügen“.
-                        </p>
-                      )}
-                      {(room.defects || []).map((defect, j) => (
-                        <div className="defect-item" key={defect.id}>
+                    <span>
+                      {String(i + 1).padStart(2, "0")} {r.name}
+                    </span>
+                    <span>{r.photoIds.length}</span>
+                  </button>
+                ))}
+                <label className="field-label" htmlFor="tag-filter">
+                  BEFUNDE FILTERN
+                </label>
+                <select
+                  id="tag-filter"
+                  className="field"
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value)}
+                >
+                  <option value="all">Alle Tags</option>
+                  {REPORT_TAGS.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+                <p className="small muted">
+                  Raumwechsel und Zuordnung basieren auf deinen gesprochenen
+                  Beobachtungen.
+                </p>
+              </aside>
+              <div className="rooms">
+                {view.rooms.map((room, i) => {
+                  const visible =
+                    (activeRoom === "all" || activeRoom === String(i)) &&
+                    (tag === "all" || room.tags?.includes(tag));
+                  return (
+                    <section
+                      className={`panel room-section ${visible ? "" : "filtered-out"}`}
+                      key={i}
+                    >
+                      <div className="room-heading">
+                        <span className="room-number">
+                          {String(i + 1).padStart(2, "0")}
+                        </span>
+                        <div>
                           {edited ? (
                             <input
                               className="field"
-                              aria-label={`Mangel ${j + 1} in ${room.name}`}
-                              value={defect.description}
+                              aria-label={`Raum ${i + 1} Name`}
+                              value={room.name}
                               onChange={(e) =>
-                                roomChange(i, {
-                                  defects: room.defects!.map((d, k) =>
-                                    k === j
-                                      ? { ...d, description: e.target.value }
-                                      : d,
-                                  ),
-                                })
+                                roomChange(i, { name: e.target.value })
                               }
                             />
                           ) : (
-                            <span>{defect.description}</span>
+                            <h2>{room.name}</h2>
                           )}
-                          <label className="defect-status no-print">
-                            <span>Status</span>
-                            <select
-                              className="field"
-                              aria-label={`Status Mangel ${j + 1} in ${room.name}`}
-                              value={defect.status}
-                              onChange={(e) =>
-                                changeDefectStatus(
-                                  i,
-                                  j,
-                                  e.target.value as "open" | "done",
-                                )
-                              }
-                            >
-                              <option value="open">Offen</option>
-                              <option value="done">Erledigt</option>
-                            </select>
-                          </label>
-                          <span className="defect-print-status">
-                            {defect.status === "done" ? "Erledigt" : "Offen"}
-                          </span>
-                          {edited && (
-                            <button
-                              className="btn no-print"
-                              aria-label={`Mangel ${j + 1} in ${room.name} entfernen`}
-                              onClick={() =>
-                                roomChange(i, {
-                                  defects: room.defects!.filter(
-                                    (_, k) => k !== j,
-                                  ),
-                                })
-                              }
-                            >
-                              Entfernen
-                            </button>
-                          )}
+                          <div className="tag-list">
+                            {edited
+                              ? REPORT_TAGS.map((t) => (
+                                  <button
+                                    key={t}
+                                    className={`tag ${room.tags?.includes(t) ? "selected" : ""}`}
+                                    aria-pressed={
+                                      room.tags?.includes(t) || false
+                                    }
+                                    onClick={() =>
+                                      roomChange(i, {
+                                        tags: room.tags?.includes(t)
+                                          ? room.tags.filter((v) => v !== t)
+                                          : [...(room.tags || []), t],
+                                      })
+                                    }
+                                  >
+                                    {room.tags?.includes(t) && (
+                                      <Check size={12} />
+                                    )}{" "}
+                                    {t}
+                                  </button>
+                                ))
+                              : (room.tags || []).map((t) => (
+                                  <span
+                                    className={`tag tag-${t === "Mangel" ? "defect" : t === "Erledigt" ? "done" : "default"}`}
+                                    key={t}
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                          </div>
                         </div>
-                      ))}
-                      <button
-                        className="btn no-print"
-                        onClick={() =>
-                          roomChange(i, {
-                            defects: [
-                              ...(room.defects || []),
-                              {
-                                id: crypto.randomUUID(),
-                                description: "Neuer Mangel",
-                                status: "open",
-                              },
-                            ],
-                          })
-                        }
-                      >
-                        <Plus size={16} /> Mangel hinzufügen
-                      </button>
-                    </div>
-                    <label className="field-label">BEFUND</label>
-                    {edited ? (
-                      <textarea
-                        className="field"
-                        aria-label={`Befund ${room.name}`}
-                        value={room.summary}
-                        onChange={(e) =>
-                          roomChange(i, { summary: e.target.value })
-                        }
-                      />
-                    ) : (
-                      <p className="room-summary">{room.summary}</p>
-                    )}
-                    <details
-                      className="transcript"
-                      open={!!edited || undefined}
-                    >
-                      <summary>Gesprochene Dokumentation</summary>
+                      </div>
+                      <div className="defect-list">
+                        <h3>Mängelstatus</h3>
+                        {!room.defects?.length && (
+                          <p className="small muted">
+                            Noch keine einzelnen Mängel erfasst. Ergänze sie aus
+                            dem Befund über „Mangel hinzufügen“.
+                          </p>
+                        )}
+                        {(room.defects || []).map((defect, j) => (
+                          <div className="defect-item" key={defect.id}>
+                            {edited ? (
+                              <input
+                                className="field"
+                                aria-label={`Mangel ${j + 1} in ${room.name}`}
+                                value={defect.description}
+                                onChange={(e) =>
+                                  roomChange(i, {
+                                    defects: room.defects!.map((d, k) =>
+                                      k === j
+                                        ? { ...d, description: e.target.value }
+                                        : d,
+                                    ),
+                                  })
+                                }
+                              />
+                            ) : (
+                              <span>{defect.description}</span>
+                            )}
+                            <label className="defect-status no-print">
+                              <span>Status</span>
+                              <select
+                                className="field"
+                                aria-label={`Status Mangel ${j + 1} in ${room.name}`}
+                                value={defect.status}
+                                onChange={(e) =>
+                                  changeDefectStatus(
+                                    i,
+                                    j,
+                                    e.target.value as "open" | "done",
+                                  )
+                                }
+                              >
+                                <option value="open">Offen</option>
+                                <option value="done">Erledigt</option>
+                              </select>
+                            </label>
+                            <span className="defect-print-status">
+                              {defect.status === "done" ? "Erledigt" : "Offen"}
+                            </span>
+                            {edited && (
+                              <button
+                                className="btn no-print"
+                                aria-label={`Mangel ${j + 1} in ${room.name} entfernen`}
+                                onClick={() =>
+                                  roomChange(i, {
+                                    defects: room.defects!.filter(
+                                      (_, k) => k !== j,
+                                    ),
+                                  })
+                                }
+                              >
+                                Entfernen
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          className="btn no-print"
+                          onClick={() =>
+                            roomChange(i, {
+                              defects: [
+                                ...(room.defects || []),
+                                {
+                                  id: crypto.randomUUID(),
+                                  description: "Neuer Mangel",
+                                  status: "open",
+                                },
+                              ],
+                            })
+                          }
+                        >
+                          <Plus size={16} /> Mangel hinzufügen
+                        </button>
+                      </div>
+                      <label className="field-label">BEFUND</label>
                       {edited ? (
                         <textarea
                           className="field"
-                          aria-label={`Transkript ${room.name}`}
-                          value={room.transcription}
+                          aria-label={`Befund ${room.name}`}
+                          value={room.summary}
                           onChange={(e) =>
-                            roomChange(i, { transcription: e.target.value })
+                            roomChange(i, { summary: e.target.value })
                           }
                         />
                       ) : (
-                        <p>{room.transcription}</p>
+                        <p className="room-summary">{room.summary}</p>
                       )}
-                    </details>
-                    <div className="room-photos">
-                      {room.photoIds.map((photoId) => {
-                        const photo = photos.find((p) => p.id === photoId);
-                        const legacy =
-                          room.photoUrls?.[room.photoIds.indexOf(photoId)];
-                        return (
-                          <div key={photoId}>
-                            <Photo
-                              id={photoId}
-                              driveId={photo?.driveId || legacy}
-                              token={token}
-                            />
-                            {edited && (
-                              <select
-                                className="field"
-                                aria-label="Foto zuordnen"
-                                value={i}
-                                onChange={(e) =>
-                                  assignPhoto(photoId, Number(e.target.value))
-                                }
-                              >
-                                <option value={-1}>Nicht zugeordnet</option>
-                                {view.rooms.map((r, j) => (
-                                  <option value={j} key={j}>
-                                    {r.name}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {edited && (
-                      <button
-                        className="btn btn-ghost danger"
-                        onClick={() => {
-                          setEdited({
-                            ...view,
-                            rooms: view.rooms.filter((_, j) => j !== i),
-                          });
-                          setActiveRoom("all");
-                        }}
+                      <details
+                        className="transcript"
+                        open={!!edited || undefined}
                       >
-                        <Trash2 size={15} />
-                        Bereich entfernen
-                      </button>
-                    )}
-                  </section>
-                );
-              })}
-              {!view.rooms.some(
-                (r, i) =>
-                  (activeRoom === "all" || activeRoom === String(i)) &&
-                  (tag === "all" || r.tags?.includes(tag)),
-              ) && (
-                <div className="empty panel no-print">
-                  <h2>Keine Befunde mit diesem Filter</h2>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setTag("all");
-                      setActiveRoom("all");
-                    }}
-                  >
-                    Filter zurücksetzen
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        {edited && (
-          <button
-            className="btn no-print"
-            onClick={() => {
-              setEdited({
-                ...view,
-                rooms: [
-                  ...view.rooms,
-                  {
-                    name: "Neuer Bereich",
-                    summary: "",
-                    transcription: "",
-                    photoIds: [],
-                    tags: [],
-                  },
-                ],
-              });
-              setActiveRoom("all");
-            }}
-          >
-            <Plus size={17} />
-            Bereich hinzufügen
-          </button>
-        )}
-        {unassigned.length > 0 && (
-          <section className="panel unassigned">
-            <span className="eyebrow">NOCH NICHT ZUGEORDNET</span>
-            <h2>{unassigned.length} Fotos ohne eindeutigen Bereich</h2>
-            <p className="muted">
-              Im Bearbeitungsmodus kannst du diese Fotos einem Raum zuordnen.
-            </p>
-            <div className="room-photos">
-              {unassigned.map((p) => (
-                <div key={p.id}>
-                  <Photo id={p.id} driveId={p.driveId} token={token} />
-                  {edited && (
-                    <select
-                      className="field"
-                      aria-label="Foto einem Raum zuordnen"
-                      value={-1}
-                      onChange={(e) =>
-                        assignPhoto(p.id, Number(e.target.value))
-                      }
+                        <summary>Gesprochene Dokumentation</summary>
+                        {edited ? (
+                          <textarea
+                            className="field"
+                            aria-label={`Transkript ${room.name}`}
+                            value={room.transcription}
+                            onChange={(e) =>
+                              roomChange(i, { transcription: e.target.value })
+                            }
+                          />
+                        ) : (
+                          <p>{room.transcription}</p>
+                        )}
+                      </details>
+                      <div className="room-photos">
+                        {room.photoIds.map((photoId) => {
+                          const photo = photos.find((p) => p.id === photoId);
+                          const legacy =
+                            room.photoUrls?.[room.photoIds.indexOf(photoId)];
+                          return (
+                            <div key={photoId}>
+                              <Photo
+                                id={photoId}
+                                driveId={photo?.driveId || legacy}
+                                token={token}
+                              />
+                              {edited && (
+                                <select
+                                  className="field"
+                                  aria-label="Foto zuordnen"
+                                  value={i}
+                                  onChange={(e) =>
+                                    assignPhoto(photoId, Number(e.target.value))
+                                  }
+                                >
+                                  <option value={-1}>Nicht zugeordnet</option>
+                                  {view.rooms.map((r, j) => (
+                                    <option value={j} key={j}>
+                                      {r.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {edited && (
+                        <button
+                          className="btn btn-ghost danger"
+                          onClick={() => {
+                            setEdited({
+                              ...view,
+                              rooms: view.rooms.filter((_, j) => j !== i),
+                            });
+                            setActiveRoom("all");
+                          }}
+                        >
+                          <Trash2 size={15} />
+                          Bereich entfernen
+                        </button>
+                      )}
+                    </section>
+                  );
+                })}
+                {!view.rooms.some(
+                  (r, i) =>
+                    (activeRoom === "all" || activeRoom === String(i)) &&
+                    (tag === "all" || r.tags?.includes(tag)),
+                ) && (
+                  <div className="empty panel no-print">
+                    <h2>Keine Befunde mit diesem Filter</h2>
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        setTag("all");
+                        setActiveRoom("all");
+                      }}
                     >
-                      <option value={-1}>Bereich auswählen</option>
-                      {view.rooms.map((r, i) => (
-                        <option value={i} key={i}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              ))}
+                      Filter zurücksetzen
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          </section>
-        )}
+          )}
+          {edited && (
+            <button
+              className="btn no-print"
+              onClick={() => {
+                setEdited({
+                  ...view,
+                  rooms: [
+                    ...view.rooms,
+                    {
+                      name: "Neuer Bereich",
+                      summary: "",
+                      transcription: "",
+                      photoIds: [],
+                      tags: [],
+                    },
+                  ],
+                });
+                setActiveRoom("all");
+              }}
+            >
+              <Plus size={17} />
+              Bereich hinzufügen
+            </button>
+          )}
+          {unassigned.length > 0 && (
+            <section className="panel unassigned">
+              <span className="eyebrow">NOCH NICHT ZUGEORDNET</span>
+              <h2>{unassigned.length} Fotos ohne eindeutigen Bereich</h2>
+              <p className="muted">
+                Im Bearbeitungsmodus kannst du diese Fotos einem Raum zuordnen.
+              </p>
+              <div className="room-photos">
+                {unassigned.map((p) => (
+                  <div key={p.id}>
+                    <Photo id={p.id} driveId={p.driveId} token={token} />
+                    {edited && (
+                      <select
+                        className="field"
+                        aria-label="Foto einem Raum zuordnen"
+                        value={-1}
+                        onChange={(e) =>
+                          assignPhoto(p.id, Number(e.target.value))
+                        }
+                      >
+                        <option value={-1}>Bereich auswählen</option>
+                        {view.rooms.map((r, i) => (
+                          <option value={i} key={i}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       </fieldset>
     </Shell>
   );
