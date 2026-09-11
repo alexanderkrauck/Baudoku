@@ -28,6 +28,7 @@ import {
 } from "../lib/session";
 import DefectOverview from "../components/DefectOverview";
 import ReportHeader from "../components/ReportHeader";
+import ReportFooter from "../components/ReportFooter";
 import {
   analyzeDraft,
   backupDraft,
@@ -635,6 +636,7 @@ export default function ReportPage() {
             />
           )}
         />
+        {viewMode === "report" && <ReportFooter date={view.date} />}
         <div
           className={`original-documentation ${viewMode === "report" ? "report-original" : ""}`}
         >

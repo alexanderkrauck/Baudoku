@@ -108,6 +108,9 @@ export default function DefectOverview({
     <section
       className={`trade-overview ${editing ? "edit-view" : "report-view"}`}
     >
+      {!editing && (
+        <h2 className="report-section-title">Mängel nach Gewerken</h2>
+      )}
       <div className="defect-filters no-print">
         <label>
           Gewerk
@@ -164,145 +167,204 @@ export default function DefectOverview({
               automatisch einsortiert.
             </p>
           )}
-          {group.defects.map((d) => {
-            const key = `${d.roomIndex}-${d.id}`;
-            const update = (patch: Partial<Defect>) =>
-              onChange(d.roomIndex, d.defectIndex, patch);
-            const original = rooms[d.roomIndex].defects![d.defectIndex];
-            return (
-              <article className="trade-defect" key={key}>
-                <div className="trade-defect-content">
-                  {editing ? (
-                    <>
-                      <div className="compact-fields">
+          {!editing ? (
+            <table className="defect-report-table">
+              <colgroup>
+                <col className="col-number" />
+                <col className="col-location" />
+                <col className="col-description" />
+                <col className="col-status" />
+                <col className="col-photo" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Nr.</th>
+                  <th>Top / Raum</th>
+                  <th>Beschreibung</th>
+                  <th>Status</th>
+                  <th>Foto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.defects.map((d) => (
+                  <tr key={`${d.roomIndex}-${d.id}`}>
+                    <td>
+                      <span className="defect-number">
+                        {visible.flatMap((g) => g.defects).indexOf(d) + 1}
+                      </span>
+                    </td>
+                    <td className="report-location">{d.location}</td>
+                    <td className="report-description">{d.description}</td>
+                    <td>
+                      <strong className={`defect-status-badge ${d.status}`}>
+                        {d.status === "done" ? "ERLEDIGT" : "OFFEN"}
+                      </strong>
+                    </td>
+                    <td className="report-photos">
+                      {d.photoIds.length ? (
+                        d.photoIds.map((id) => (
+                          <figure key={id}>
+                            {renderPhoto(id)}
+                            <figcaption>
+                              Foto {photos.findIndex((p) => p.id === id) + 1}
+                            </figcaption>
+                          </figure>
+                        ))
+                      ) : (
+                        <span className="small muted">
+                          Keine Fotos zugeordnet
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            group.defects.map((d) => {
+              const key = `${d.roomIndex}-${d.id}`;
+              const update = (patch: Partial<Defect>) =>
+                onChange(d.roomIndex, d.defectIndex, patch);
+              const original = rooms[d.roomIndex].defects![d.defectIndex];
+              return (
+                <article className="trade-defect" key={key}>
+                  <div className="trade-defect-content">
+                    {editing ? (
+                      <>
+                        <div className="compact-fields">
+                          <label>
+                            Top / Raum
+                            <input
+                              className="field"
+                              aria-label={`Top / Raum: ${d.description}`}
+                              value={
+                                original.location ?? rooms[d.roomIndex].name
+                              }
+                              onChange={(e) =>
+                                update({ location: e.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Status
+                            <select
+                              className="field"
+                              aria-label={`Status ${d.description}`}
+                              value={d.status}
+                              onChange={(e) =>
+                                update({
+                                  status: e.target.value as "open" | "done",
+                                })
+                              }
+                            >
+                              <option value="open">Offen</option>
+                              <option value="done">Erledigt</option>
+                            </select>
+                          </label>
+                        </div>
                         <label>
-                          Top / Raum
-                          <input
+                          Beschreibung
+                          <textarea
+                            rows={2}
                             className="field"
-                            aria-label={`Top / Raum: ${d.description}`}
-                            value={original.location ?? rooms[d.roomIndex].name}
+                            aria-label={`Beschreibung ${key}`}
+                            value={d.description}
                             onChange={(e) =>
-                              update({ location: e.target.value })
+                              update({ description: e.target.value })
                             }
                           />
                         </label>
-                        <label>
-                          Status
-                          <select
-                            className="field"
-                            aria-label={`Status ${d.description}`}
-                            value={d.status}
-                            onChange={(e) =>
-                              update({
-                                status: e.target.value as "open" | "done",
-                              })
-                            }
-                          >
-                            <option value="open">Offen</option>
-                            <option value="done">Erledigt</option>
-                          </select>
-                        </label>
-                      </div>
-                      <label>
-                        Beschreibung
-                        <textarea
-                          rows={2}
-                          className="field"
-                          aria-label={`Beschreibung ${key}`}
-                          value={d.description}
-                          onChange={(e) =>
-                            update({ description: e.target.value })
+                        <TradeSelect
+                          value={original.trade || ""}
+                          options={options}
+                          description={d.description}
+                          onChange={(trade) =>
+                            update({ trade, tradeSuggestion: undefined })
                           }
                         />
-                      </label>
-                      <TradeSelect
-                        value={original.trade || ""}
-                        options={options}
-                        description={d.description}
-                        onChange={(trade) =>
-                          update({ trade, tradeSuggestion: undefined })
-                        }
-                      />
-                      {!original.trade && original.tradeSuggestion && (
-                        <p className="small">
-                          KI-Vorschlag: {original.tradeSuggestion}{" "}
-                          <button
-                            className="btn"
-                            onClick={() =>
-                              update({
-                                trade: original.tradeSuggestion,
-                                tradeSuggestion: undefined,
-                              })
-                            }
-                          >
-                            Vorschlag bestätigen
-                          </button>
+                        {!original.trade && original.tradeSuggestion && (
+                          <p className="small">
+                            KI-Vorschlag: {original.tradeSuggestion}{" "}
+                            <button
+                              className="btn"
+                              onClick={() =>
+                                update({
+                                  trade: original.tradeSuggestion,
+                                  tradeSuggestion: undefined,
+                                })
+                              }
+                            >
+                              Vorschlag bestätigen
+                            </button>
+                          </p>
+                        )}
+                        <details className="photo-assignment">
+                          <summary>
+                            Fotos zuordnen ({d.photoIds.length})
+                          </summary>
+                          <div>
+                            {photos.map((photo, index) => (
+                              <label key={photo.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={d.photoIds.includes(photo.id)}
+                                  onChange={(e) =>
+                                    update({
+                                      photoIds: e.target.checked
+                                        ? [...d.photoIds, photo.id]
+                                        : d.photoIds.filter(
+                                            (id) => id !== photo.id,
+                                          ),
+                                    })
+                                  }
+                                />{" "}
+                                Foto {index + 1}
+                              </label>
+                            ))}
+                          </div>
+                        </details>
+                      </>
+                    ) : (
+                      <>
+                        <span className="defect-location">{d.location}</span>
+                        <h4>{d.description}</h4>
+                        <p className="defect-meta">
+                          {d.trade} ·{" "}
+                          <strong className={`defect-status-badge ${d.status}`}>
+                            {d.status === "done" ? "ERLEDIGT" : "OFFEN"}
+                          </strong>
                         </p>
-                      )}
-                      <details className="photo-assignment">
-                        <summary>Fotos zuordnen ({d.photoIds.length})</summary>
-                        <div>
-                          {photos.map((photo, index) => (
-                            <label key={photo.id}>
-                              <input
-                                type="checkbox"
-                                checked={d.photoIds.includes(photo.id)}
-                                onChange={(e) =>
-                                  update({
-                                    photoIds: e.target.checked
-                                      ? [...d.photoIds, photo.id]
-                                      : d.photoIds.filter(
-                                          (id) => id !== photo.id,
-                                        ),
-                                  })
-                                }
-                              />{" "}
-                              Foto {index + 1}
-                            </label>
-                          ))}
-                        </div>
-                      </details>
-                    </>
-                  ) : (
-                    <>
-                      <span className="defect-location">{d.location}</span>
-                      <h4>{d.description}</h4>
-                      <p className="defect-meta">
+                      </>
+                    )}
+                    <div className="print-only">
+                      <strong>{d.location}</strong>
+                      <p>{d.description}</p>
+                      <span>
                         {d.trade} ·{" "}
                         <strong className={`defect-status-badge ${d.status}`}>
                           {d.status === "done" ? "ERLEDIGT" : "OFFEN"}
                         </strong>
-                      </p>
-                    </>
-                  )}
-                  <div className="print-only">
-                    <strong>{d.location}</strong>
-                    <p>{d.description}</p>
-                    <span>
-                      {d.trade} ·{" "}
-                      <strong className={`defect-status-badge ${d.status}`}>
-                        {d.status === "done" ? "ERLEDIGT" : "OFFEN"}
-                      </strong>
-                    </span>
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div className="defect-gallery">
-                  {d.photoIds.length ? (
-                    d.photoIds.map((id) => (
-                      <figure key={id}>
-                        {renderPhoto(id)}
-                        <figcaption>
-                          Foto {photos.findIndex((p) => p.id === id) + 1}
-                        </figcaption>
-                      </figure>
-                    ))
-                  ) : (
-                    <p className="small muted">Keine Fotos zugeordnet</p>
-                  )}
-                </div>
-              </article>
-            );
-          })}
+                  <div className="defect-gallery">
+                    {d.photoIds.length ? (
+                      d.photoIds.map((id) => (
+                        <figure key={id}>
+                          {renderPhoto(id)}
+                          <figcaption>
+                            Foto {photos.findIndex((p) => p.id === id) + 1}
+                          </figcaption>
+                        </figure>
+                      ))
+                    ) : (
+                      <p className="small muted">Keine Fotos zugeordnet</p>
+                    )}
+                  </div>
+                </article>
+              );
+            })
+          )}
         </section>
       ))}
     </section>

@@ -8,7 +8,17 @@ export default function ReportHeader({ report }: { report: ReportData }) {
   const trades = groups.filter((g) => g.trade !== UNASSIGNED_TRADE).length;
   return (
     <header className="compact-report-header">
-      <span className="eyebrow">BAUDOKU / MÄNGELBERICHT</span>
+      <div className="report-brand-row">
+        <div>
+          <span className="eyebrow">BAUDOKU / MÄNGELBERICHT</span>
+          <h1>{report.projectName || report.title}</h1>
+        </div>
+        <img
+          className="report-logo"
+          src="/krauck-systems.jpg"
+          alt="KRAUCK SYSTEMS"
+        />
+      </div>
       <dl className="report-facts">
         <div>
           <dt>Projekt</dt>

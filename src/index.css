@@ -2067,3 +2067,229 @@ textarea {
     print-color-adjust: exact;
   }
 }
+/* Branded report: all content remains sourced from the report. */
+.report-brand-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+}
+.report-brand-row h1 {
+  font-size: 38px;
+  line-height: 1.15;
+  margin: 8px 0 18px;
+  letter-spacing: -1px;
+}
+.report-logo {
+  width: 280px;
+  max-width: 36%;
+  height: auto;
+  object-fit: contain;
+  margin-top: 4px;
+}
+.compact-report-header {
+  border: 0;
+}
+.report-facts > div {
+  border-right: 1px solid #dbe3df;
+  padding-right: 12px;
+}
+.report-facts > div:last-child {
+  border: 0;
+}
+.report-section-title {
+  font-size: 22px;
+  margin: 20px 0 12px;
+}
+.report-view .trade-group {
+  padding: 0;
+  border: 1px solid #cedbd5;
+  border-radius: 5px;
+  background: #fff;
+  overflow: visible;
+  margin: 16px 0;
+}
+.report-view .trade-group h3 {
+  margin: 0;
+  padding: 9px 12px;
+  background: #dce7e1;
+  border: 0;
+  border-left: 5px solid #154f40;
+  color: #102f29;
+  font-size: 17px;
+}
+.defect-report-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.defect-report-table .col-number {
+  width: 6%;
+}
+.defect-report-table .col-location {
+  width: 16%;
+}
+.defect-report-table .col-description {
+  width: 26%;
+}
+.defect-report-table .col-status {
+  width: 12%;
+}
+.defect-report-table .col-photo {
+  width: 40%;
+}
+.defect-report-table th {
+  background: #eef3f0;
+  text-align: left;
+  font-size: 11px;
+  padding: 8px 6px;
+}
+.defect-report-table td {
+  padding: 12px 6px;
+  vertical-align: middle;
+  border-top: 1px solid #dce4df;
+  overflow-wrap: anywhere;
+}
+.defect-number {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 4px 8px;
+  background: #dce7e1;
+  font-weight: 700;
+}
+.report-location,
+.report-description {
+  font-weight: 600;
+  font-size: 14px;
+}
+.defect-report-table td.report-photos {
+  padding: 3px;
+}
+.report-photos figure {
+  position: relative;
+  margin: 0 0 3px;
+  background: #f1f3f2;
+}
+.report-photos img {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: contain;
+  border-radius: 0;
+}
+.report-photos figcaption {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  background: #202621d9;
+  color: white;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.report-view .defect-status-badge {
+  font-size: 11px;
+  padding: 5px 7px;
+  white-space: nowrap;
+  color: #172b21;
+}
+.report-view .defect-status-badge.open {
+  background: #ffe39a;
+  border-color: #e9a820;
+}
+.report-footer {
+  border-top: 1px solid #cad5cf;
+  padding-top: 12px;
+  margin-top: 24px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 11px;
+  color: #40534a;
+}
+@media (max-width: 650px) {
+  .report-brand-row h1 {
+    font-size: 26px;
+  }
+  .report-logo {
+    max-width: 40%;
+  }
+  .defect-report-table th,
+  .defect-report-table td {
+    padding: 5px 3px;
+    font-size: 11px;
+  }
+  .report-photos img {
+    height: 150px;
+  }
+  .report-view .defect-status-badge {
+    font-size: 8px;
+    padding: 3px;
+  }
+  .defect-number {
+    padding: 3px;
+  }
+  .report-footer {
+    flex-wrap: wrap;
+  }
+}
+@media print {
+  .report-brand-row h1 {
+    font-size: 25pt;
+    margin-bottom: 10px;
+  }
+  .report-logo {
+    width: 65mm;
+  }
+  .report-view .trade-group {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+  .report-view .trade-group h3 {
+    font-size: 11pt;
+    break-after: avoid;
+    print-color-adjust: exact;
+  }
+  .defect-report-table thead {
+    display: table-header-group;
+  }
+  .defect-report-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .defect-report-table td {
+    font-size: 9pt;
+    padding: 3mm 1.5mm;
+  }
+  .report-photos img {
+    height: 48mm !important;
+    width: 100% !important;
+    object-fit: contain !important;
+  }
+  .report-footer {
+    display: none;
+  }
+  .defect-report-table th,
+  .defect-number {
+    print-color-adjust: exact;
+  }
+  @page {
+    margin: 12mm 10mm 18mm;
+    @bottom-left {
+      content: "KRAUCK SYSTEMS  |  Projektsicherheit für Bauherren & Investoren";
+      font-family: Arial;
+      font-size: 7pt;
+      color: #40534a;
+    }
+    @bottom-right {
+      content: "Seite " counter(page) " von " counter(pages);
+      font-family: Arial;
+      font-size: 7pt;
+      color: #40534a;
+    }
+  }
+}
+body:has(.report-view) { background:#fff; }
+body:has(.report-view) main { background:#fff; }
+.report-view .defect-filters {margin:8px 0;}
+.report-view .report-filter-summary {margin:6px 0;font-size:11px;}

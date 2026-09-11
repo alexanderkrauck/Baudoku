@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import DefectOverview from "../components/DefectOverview";
 import ReportHeader from "../components/ReportHeader";
+import ReportFooter from "../components/ReportFooter";
 import type { ReportData } from "../types";
 
 /** Development-only, isolated in-memory preview. Never writes to Firebase or Drive. */
@@ -94,6 +95,7 @@ export default function PreviewPage() {
                 />
               )}
             />
+            {!editing && <ReportFooter date={report.date} />}
             <details className="no-print">
               <summary>
                 Ursprüngliche Raumdokumentation ({report.rooms.length} Bereiche)
