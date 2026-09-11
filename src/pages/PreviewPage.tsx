@@ -4,7 +4,8 @@ import ReportHeader from "../components/ReportHeader";
 import ReportFooter from "../components/ReportFooter";
 import type { ReportData } from "../types";
 
-/** Development-only, isolated in-memory preview. Never writes to Firebase or Drive. */
+const previewStorageKey = "baudoku-development-preview-v1";
+/** Development-only browser copy. Never writes to Firebase or Drive. */
 export default function PreviewPage() {
   const [report, setReport] = useState<ReportData>();
   const [editing, setEditing] = useState(true);
@@ -18,9 +19,32 @@ export default function PreviewPage() {
           );
         return r.json();
       })
-      .then(setReport)
+      .then((fixture: ReportData) => {
+        try {
+          const saved = JSON.parse(
+            localStorage.getItem(previewStorageKey) || "null",
+          );
+          setReport(
+            saved?.id === fixture.id && Array.isArray(saved?.rooms)
+              ? saved
+              : fixture,
+          );
+        } catch {
+          setReport(fixture);
+        }
+      })
       .catch((e) => setError(e.message));
   }, []);
+  useEffect(() => {
+    if (!report) return;
+    try {
+      localStorage.setItem(previewStorageKey, JSON.stringify(report));
+    } catch {
+      setError(
+        "Die Preview konnte nicht im Browser gespeichert werden. Bitte diese Seite vorerst nicht neu laden.",
+      );
+    }
+  }, [report]);
   return (
     <>
       <div className="preview-banner no-print">

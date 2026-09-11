@@ -6,7 +6,7 @@ German-language construction walkthroughs: record audio, capture photos, generat
 
 **Do everyday work on `development`, the GitHub default branch. `main` is production.** GitHub enforces these rules through active repository rulesets; they are not merely conventions.
 
-For Alfred's workflow, implement and test changes on development, open the local development preview for review, and wait for explicit release approval. Never infer release approval from a feature request. The development-only `/__preview` page uses ignored `output/preview` fixtures and only in-memory edits; it never writes to Firebase or Drive. Start its server with `HOST=127.0.0.1` and `PORT=3001` for local review. Keep private fixtures out of commits. Production does not expose the preview asset route.
+For Alfred's workflow, implement and test changes on development, open the local development preview for review, and wait for explicit release approval. Never infer release approval from a feature request. The development-only `/__preview` page uses ignored `output/preview` fixtures and browser-local edits retained across reloads; it never writes to Firebase or Drive. Start its server with `HOST=127.0.0.1` and `PORT=3001` for local review. Keep private fixtures out of commits. Production does not expose the preview asset route.
 
 - Direct pushes, force-pushes and deletion of `main` are blocked. There are no configured bypass actors, including administrators. Administrators can still deliberately change repository rules, as with any GitHub repository.
 - A PR into `main` must come from this repository's `development` branch. Feature branches and forks must first go through `development`.

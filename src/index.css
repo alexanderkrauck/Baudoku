@@ -2289,7 +2289,52 @@ textarea {
     }
   }
 }
-body:has(.report-view) { background:#fff; }
-body:has(.report-view) main { background:#fff; }
-.report-view .defect-filters {margin:8px 0;}
-.report-view .report-filter-summary {margin:6px 0;font-size:11px;}
+body:has(.report-view) {
+  background: #fff;
+}
+body:has(.report-view) main {
+  background: #fff;
+}
+.report-view .defect-filters {
+  margin: 8px 0;
+}
+.report-view .report-filter-summary {
+  margin: 6px 0;
+  font-size: 11px;
+}
+/* Full-width landscape photos; portrait originals remain uncropped. */
+.defect-report-table .col-number {
+  width: 5%;
+}
+.defect-report-table .col-location {
+  width: 15%;
+}
+.defect-report-table .col-description {
+  width: 24%;
+}
+.defect-report-table .col-status {
+  width: 12%;
+}
+.defect-report-table .col-photo {
+  width: 44%;
+}
+.report-photos img {
+  width: 100%;
+  height: auto;
+  max-height: 310px;
+  object-fit: contain;
+}
+.report-photos figure {
+  margin: 0;
+}
+@media print {
+  .report-photos img {
+    width: 100% !important;
+    height: auto !important;
+    max-height: 62mm !important;
+    object-fit: contain !important;
+  }
+  .defect-report-table td.report-photos {
+    padding: 1mm;
+  }
+}
