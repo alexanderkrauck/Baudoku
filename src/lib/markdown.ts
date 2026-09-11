@@ -1,4 +1,5 @@
 import type { ReportData } from "../types";
+import { groupDefects } from "./defects";
 
 function escapeText(text: string): string {
   return text
@@ -57,6 +58,33 @@ export function reportToMarkdown(report: ReportData): string {
       }))
       .filter((photo) => photo.driveId);
   const assigned = new Set<string>();
+  const groups = groupDefects(report.rooms);
+  if (groups.length) {
+    lines.push("", "## Mängel nach Gewerken");
+    for (const group of groups) {
+      lines.push(
+        "",
+        `### ${heading(group.trade)}`,
+        "",
+        "| Top / Raum | Beschreibung | Status | Fotos |",
+        "| --- | --- | --- | --- |",
+      );
+      for (const d of group.defects) {
+        const links = d.photoIds
+          .map((id) => {
+            const photo = photos.find((p) => p.id === id);
+            return photo?.driveId
+              ? `[${heading(id)}](${driveLink(photo.driveId)})`
+              : heading(id);
+          })
+          .join(", ");
+        lines.push(
+          `| ${heading(d.location)} | ${heading(d.description)} | ${d.status === "done" ? "Erledigt" : "Offen"} | ${links || "Noch nicht zugeordnet"} |`,
+        );
+      }
+    }
+    lines.push("", "## Ursprüngliche Raumdokumentation");
+  }
   function photoLine(photo: {
     id: string;
     driveId?: string;

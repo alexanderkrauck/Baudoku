@@ -19,7 +19,14 @@ import {
 import type { ReportData, RoomReport } from "../types";
 import { watchReports, saveReport, uid } from "../lib/reports";
 import { getDraft, putDraft } from "../lib/local";
-import { connectGoogle, driveToken, errorMessage } from "../lib/session";
+import {
+  connectGoogle,
+  driveToken,
+  errorMessage,
+  watchDriveSession,
+  requestDriveSession,
+} from "../lib/session";
+import DefectOverview from "../components/DefectOverview";
 import {
   analyzeDraft,
   backupDraft,
@@ -49,6 +56,12 @@ function Photo({
 }) {
   const [blob, setBlob] = useState<Blob>();
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const retry = () => setAttempt((value) => value + 1);
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, []);
   useEffect(() => {
     let active = true;
     setBlob(undefined);
@@ -64,7 +77,7 @@ function Photo({
     return () => {
       active = false;
     };
-  }, [driveId, token]);
+  }, [driveId, token, attempt]);
   return (
     <div className="report-photo">
       {blob ? (
@@ -86,6 +99,14 @@ function Photo({
                   ? "Drive verbinden, um Foto zu laden"
                   : "Foto laden …")}
           </span>
+          {error && token && (
+            <button
+              className="btn no-print"
+              onClick={() => setAttempt((value) => value + 1)}
+            >
+              Foto erneut laden
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -101,6 +122,14 @@ export default function ReportPage() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [token, setToken] = useState(driveToken);
+  useEffect(
+    () =>
+      watchDriveSession(() => {
+        setToken(driveToken());
+        requestDriveSession();
+      }),
+    [],
+  );
   const [activeRoom, setActiveRoom] = useState("all");
   const [tag, setTag] = useState("all");
   useEffect(
@@ -544,14 +573,45 @@ export default function ReportPage() {
         {photos.length > 0 && (
           <div className="connect-photos no-print">
             <span>
-              Die Fotos sind privat in deinem Google Drive gespeichert.
+              {token
+                ? "Google Drive verbunden. Fotos werden automatisch geladen."
+                : "Für die privaten Fotos ist eine Google-Drive-Bestätigung erforderlich."}
             </span>
-            <button className="btn" onClick={connect}>
-              <RefreshCw size={16} />
-              {token ? "Drive-Verbindung erneuern" : "Drive verbinden"}
-            </button>
+            {!token && (
+              <button className="btn" onClick={connect}>
+                <RefreshCw size={16} />
+                Google Drive verbinden
+              </button>
+            )}
           </div>
         )}
+        <DefectOverview
+          rooms={view.rooms}
+          photos={photos}
+          editing={!!edited}
+          onChange={(i, j, patch) => {
+            if (!edited && patch.status)
+              void changeDefectStatus(i, j, patch.status);
+            else
+              roomChange(i, {
+                defects: view.rooms[i].defects!.map((d, k) =>
+                  k === j ? { ...d, ...patch } : d,
+                ),
+              });
+          }}
+          renderPhoto={(photoId) => (
+            <Photo
+              id={photoId}
+              driveId={photos.find((p) => p.id === photoId)?.driveId}
+              token={token}
+            />
+          )}
+        />
+        <h2>Raumdokumentation</h2>
+        <p className="muted">
+          Ursprüngliche Befunde, Transkripte und Raumfotos bleiben vollständig
+          erhalten.
+        </p>
         {view.rooms.length > 0 && (
           <div className="report-body">
             <aside className="room-nav no-print">

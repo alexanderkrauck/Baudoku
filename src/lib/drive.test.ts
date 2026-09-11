@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-vi.mock("./session", () => ({ rememberToken: vi.fn() }));
+vi.mock("./session", () => ({
+  rememberToken: vi.fn(),
+  driveToken: vi.fn(() => "token"),
+}));
 import { getDriveFolder, listDriveReports, verifyDriveAccess } from "./drive";
-import { rememberToken } from "./session";
+import { rememberToken, driveToken } from "./session";
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -32,6 +35,14 @@ describe("Drive storage", () => {
       "abgelaufen",
     );
     expect(rememberToken).toHaveBeenCalledWith(undefined);
+  });
+  it("keeps newly renewed authorization when an older request fails", async () => {
+    vi.mocked(driveToken).mockReturnValueOnce("replacement");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({}, 401)));
+    await expect(getDriveFolder("folder", "old-token")).rejects.toThrow(
+      "abgelaufen",
+    );
+    expect(rememberToken).not.toHaveBeenCalled();
   });
   it("rejects malformed imported room tags before they reach report rendering", async () => {
     vi.stubGlobal(
