@@ -38,6 +38,7 @@ vi.mock("idb-keyval", () => {
 });
 import {
   appendRecordingChunk,
+  beginRecordingSession,
   deleteDraft,
   getDraft,
   listDrafts,
@@ -155,4 +156,68 @@ describe("durable recording drafts", () => {
     storage.data.set("u:draft", { ...draft("r"), audio: new Blob(["old"]) });
     expect(await (await getDraft("u"))?.audio?.text()).toBe("new");
   });
+});
+
+describe("resuming a recording", () => {
+  it("keeps the previous container and recovers only the new session journal", async () => {
+    await putDraft("u", {
+      ...draft("resume"),
+      audio: new Blob(["old-container"]),
+      report: { ...draft("resume").report, durationMs: 2000 },
+    });
+    await appendRecordingChunk(
+      "u",
+      "resume",
+      0,
+      new Blob(["old-container"]),
+      2000,
+    );
+    const first = (await getDraft("u", "resume"))!;
+    const session = await beginRecordingSession("u", first);
+    expect(await session.draft.audioParts![0].blob.text()).toBe(
+      "old-container",
+    );
+    expect((await getDraft("u", "resume"))!.audio).toBeUndefined();
+    await appendRecordingChunk(
+      "u",
+      "resume",
+      session.sequence,
+      new Blob(["new-container"]),
+      3500,
+    );
+    const recovered = (await getDraft("u", "resume"))!;
+    expect(await recovered.audio!.text()).toBe("new-container");
+    expect(await recovered.audioParts![0].blob.text()).toBe("old-container");
+    expect(recovered.audioStartMs).toBe(2000);
+    expect(recovered.report.durationMs).toBe(3500);
+  });
+  it("does not replace the old recording when archiving fails", async () => {
+    const old = { ...draft("r"), audio: new Blob(["safe"]) };
+    await putDraft("u", old);
+    storage.failWrites = true;
+    await expect(beginRecordingSession("u", old)).rejects.toThrow();
+    expect(await (await getDraft("u", "r"))!.audio!.text()).toBe("safe");
+  });
+});
+
+it("recovers all 100 immediately saved photos with the original audio after reopening", async () => {
+  let d: Draft = { ...draft("hundred"), audio: new Blob(["voice"]) };
+  for (let i = 0; i < 100; i++) {
+    d = {
+      ...d,
+      photos: [
+        ...d.photos,
+        {
+          id: `p-${i}`,
+          blob: new Blob([`photo-${i}`]),
+          relativeTimeMs: i * 1000,
+        },
+      ],
+    };
+    await putDraft("u", d);
+  }
+  const restored = (await getDraft("u", "hundred"))!;
+  expect(restored.photos).toHaveLength(100);
+  expect(await restored.photos[99].blob.text()).toBe("photo-99");
+  expect(await restored.audio!.text()).toBe("voice");
 });

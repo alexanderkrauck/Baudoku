@@ -102,6 +102,36 @@ export async function putDraft(uid: string, draft: Draft) {
   emit(uid);
 }
 
+/** Commit the recovered audio before a fresh recorder starts a new container. */
+export async function beginRecordingSession(uid: string, draft: Draft) {
+  const floor = Date.now();
+  const next: Draft = {
+    ...draft,
+    audioParts: [
+      ...(draft.audioParts || []),
+      ...(draft.audio?.size
+        ? [
+            {
+              blob: draft.audio,
+              startTimeMs: draft.audioStartMs || 0,
+              durationMs: Math.max(
+                0,
+                (draft.report.durationMs || 0) - (draft.audioStartMs || 0),
+              ),
+              driveId: draft.report.rawAudioUrl,
+            },
+          ]
+        : []),
+    ],
+    audio: undefined,
+    audioStartMs: draft.report.durationMs || 0,
+    audioSequenceFloor: floor,
+    report: { ...draft.report, rawAudioUrl: undefined },
+  };
+  await putDraft(uid, next);
+  return { draft: next, sequence: floor };
+}
+
 interface RecordingChunk {
   sequence: number;
   blob: Blob;
@@ -139,7 +169,11 @@ function recoverAudio(
   records: [string, unknown][],
 ): Draft {
   const chunks = records
-    .filter(([k]) => k.startsWith(chunkPrefix(uid, draft.report.id)))
+    .filter(
+      ([k, v]) =>
+        k.startsWith(chunkPrefix(uid, draft.report.id)) &&
+        (v as RecordingChunk).sequence >= (draft.audioSequenceFloor || 0),
+    )
     .map(([, value]) => value as RecordingChunk)
     .sort((a, b) => a.sequence - b.sequence);
   if (!chunks.length) return draft;

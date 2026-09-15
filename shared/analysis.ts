@@ -8,7 +8,7 @@ export const REPORT_TAGS = [
   "Material",
   "Entscheidung",
 ] as const;
-export const MAX_PHOTOS = 30;
+export const MAX_PHOTOS = 100;
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const reportSchema = {
   type: "object",

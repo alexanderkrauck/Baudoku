@@ -42,6 +42,11 @@ export function reportToMarkdown(report: ReportData): string {
   ];
   if (Number.isFinite(report.durationMs))
     lines.push(`Aufnahmedauer: ${time(report.durationMs!)}`);
+  for (const [i, part] of (report.rawAudioParts || []).entries()) {
+    lines.push(
+      `[Aufnahmeabschnitt ${i + 1} in Google Drive](${driveLink(part.id)})`,
+    );
+  }
   if (report.rawAudioUrl)
     lines.push(
       "",
