@@ -85,6 +85,79 @@ export async function uploadFileToFolder(
   token: string,
   existingId?: string,
 ): Promise<string> {
+  if (file.size > 5 * 1024 * 1024) {
+    const start = await request(
+      `https://www.googleapis.com/upload/drive/v3/files${existingId ? `/${encodeURIComponent(existingId)}` : ""}?uploadType=resumable&supportsAllDrives=true`,
+      token,
+      {
+        method: existingId ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Upload-Content-Type": mimeType,
+          "X-Upload-Content-Length": String(file.size),
+        },
+        body: JSON.stringify({
+          name,
+          mimeType,
+          ...(!existingId ? { parents: [parentId] } : {}),
+        }),
+      },
+    );
+    const session = start.headers.get("Location");
+    if (!session)
+      throw new Error(
+        "Google Drive hat keinen Upload gestartet. Bitte erneut sichern.",
+      );
+    let offset = 0;
+    let retries = 0;
+    while (offset < file.size) {
+      const end = Math.min(file.size, offset + 4 * 1024 * 1024);
+      let response: Response;
+      try {
+        response = await fetch(session, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": mimeType,
+            "Content-Range": `bytes ${offset}-${end - 1}/${file.size}`,
+          },
+          body: file.slice(offset, end),
+          signal: AbortSignal.timeout(120000),
+        });
+        if (response.status >= 500) throw new Error("Upload unterbrochen");
+      } catch {
+        if (++retries > 3)
+          throw new Error(
+            "Die Drive-Übertragung wurde unterbrochen. Der lokale Entwurf bleibt erhalten. Bitte bei stabiler Verbindung erneut sichern.",
+          );
+        response = await fetch(session, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Range": `bytes */${file.size}`,
+          },
+          signal: AbortSignal.timeout(30000),
+        });
+      }
+      if (response.ok) return (await response.json()).id;
+      if (response.status !== 308)
+        throw new Error(
+          `Drive-Übertragung fehlgeschlagen (${response.status}). Der lokale Entwurf bleibt erhalten.`,
+        );
+      const range = response.headers.get("Range");
+      const next = range ? Number(range.split("-").pop()) + 1 : 0;
+      if (!Number.isFinite(next) || next < 0 || next > file.size)
+        throw new Error("Ungültiger Upload-Fortschritt von Google Drive.");
+      if (next <= offset && ++retries > 3)
+        throw new Error(
+          "Drive-Übertragung ohne Fortschritt. Bitte erneut sichern.",
+        );
+      offset = next;
+    }
+    throw new Error(
+      "Drive hat den Upload noch nicht bestätigt. Bitte erneut sichern.",
+    );
+  }
   const form = new FormData();
   form.append(
     "metadata",

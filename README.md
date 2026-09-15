@@ -148,3 +148,13 @@ Automated build/type checks and mocked browser/API tests can verify navigation, 
 Before relying on a deployment, use a test account to sign in, reload, choose a Drive folder, record/pause/resume with photos, generate a report, edit and save it, and inspect the actual Drive files. Open the report on a second device to verify the Firebase index. Test an expired Drive authorization and an offline retry. Install the production PWA and check that an offline reload opens the shell. No cloud-rule deployment or live-account smoke test is implied by pushing this repository.
 
 See [the project map](docs/PROJECT_MAP.md) for module boundaries and the failure modes addressed.
+
+### Large walkthroughs and interruption recovery (development)
+
+Capture accepts up to 100 photos. There is no longer a 25 MiB capture/import limit for the whole recording. The server's per-request safety limit remains: analysis converts large audio originals into bounded mono WAV copies and evaluates successive sections. Original audio is not modified. Very large decoding jobs still depend on available device memory; failures preserve the local draft and uploaded originals.
+
+Each recorder event is journaled in IndexedDB. Resuming a recovered/stopped recording atomically archives its previous playable container before starting a fresh recorder, retaining photo timestamps on the combined timeline. Completed sections can be played/downloaded separately and are uploaded as separate Drive files. Photos and field edits continue to checkpoint locally. If local storage fails, the UI warns and retains pending in-memory data; no browser can guarantee recovery after device loss, cleared site data or an OS kill before the last write commits.
+
+Drive uploads over 5 MiB use resumable requests with 4 MiB chunks and bounded recovery at the server-confirmed offset. A page restart can still require restarting the current file upload; completed file IDs remain checkpointed.
+
+`/__recording-preview` is a development-only recording page using an isolated local account and disabling cloud operations. Its optional 100-image recovery fixture is synthetic and never part of a real report. Reload the page after creating that fixture to verify browser-local persistence. Real microphone interruption, iOS/Android lock-screen recovery, 100 full-resolution camera photos and live Google/Gemini integration still require device field testing before release.

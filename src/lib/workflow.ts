@@ -11,6 +11,7 @@ import {
 import { audioExtension, validateAnalysis } from "../../shared/analysis";
 import { reportToMarkdown } from "./markdown";
 import type { Draft, ReportData } from "../types";
+import { recordingSections, analysisSections } from "./audioSections";
 
 // An operation belongs to the account that started it, including across tab sign-outs.
 function ownedOperation() {
@@ -40,7 +41,7 @@ function localRevision(report: ReportData) {
   ).toISOString();
 }
 
-export async function analyzeDraft(draft: Draft): Promise<ReportData> {
+async function analyzeSection(draft: Draft): Promise<ReportData> {
   const { run } = ownedOperation();
   if (!draft.audio?.size) throw new Error("Keine Audioaufnahme vorhanden.");
   const photos = await run(() =>
@@ -90,6 +91,70 @@ export async function analyzeDraft(draft: Draft): Promise<ReportData> {
     error: "",
   };
 }
+export async function analyzeDraft(draft: Draft): Promise<ReportData> {
+  if (!recordingSections(draft).length)
+    throw new Error("Keine Audioaufnahme vorhanden.");
+  const rooms: ReportData["rooms"] = [];
+  const summaries: string[] = [];
+  let suggestedTitle = "";
+  const assigned = new Set<string>();
+  let index = 0;
+  for await (const section of analysisSections(draft)) {
+    const selected = draft.photos.filter(
+      (p) =>
+        !assigned.has(p.id) &&
+        (p.relativeTimeMs === null ||
+          !section.durationMs ||
+          p.relativeTimeMs < section.startTimeMs + section.durationMs),
+    );
+    selected.forEach((p) => assigned.add(p.id));
+    const result = await analyzeSection({
+      ...draft,
+      audio: section.blob,
+      photos: selected.map((p) => ({
+        ...p,
+        relativeTimeMs:
+          p.relativeTimeMs === null
+            ? null
+            : Math.max(0, p.relativeTimeMs - section.startTimeMs),
+      })),
+    });
+    summaries.push(result.summary);
+    suggestedTitle ||= result.title;
+    rooms.push(
+      ...result.rooms.map((room) => ({
+        ...room,
+        ...(room.startTimeMs === undefined
+          ? {}
+          : { startTimeMs: room.startTimeMs + section.startTimeMs }),
+        ...(room.endTimeMs === undefined
+          ? {}
+          : { endTimeMs: room.endTimeMs + section.startTimeMs }),
+        defects: room.defects?.map((d) => ({ ...d, id: `${index}-${d.id}` })),
+      })),
+    );
+    index++;
+  }
+  // Photos taken after stopping still remain visible even without an audio match.
+  const remaining = draft.photos.filter((p) => !assigned.has(p.id));
+  if (remaining.length)
+    rooms.push({
+      name: "Fotos ohne Sprachzuordnung",
+      summary: "Bitte die Fotozuordnung prüfen.",
+      transcription: "",
+      photoIds: remaining.map((p) => p.id),
+      tags: [],
+    });
+  return {
+    ...draft.report,
+    title: draft.report.projectName || suggestedTitle || draft.report.title,
+    summary: summaries.join("\n\n"),
+    rooms,
+    status: "completed",
+    error: "",
+  };
+}
+
 export async function backupDraft(
   draft: Draft,
   token: string,
@@ -115,6 +180,26 @@ export async function backupDraft(
     );
     await checkpoint();
   }
+  for (const [index, part] of (draft.audioParts || []).entries()) {
+    if (!part.driveId) {
+      progress(`Aufnahmeabschnitt ${index + 1} in Google Drive sichern …`);
+      part.driveId = await run(() =>
+        uploadFileToFolder(
+          part.blob,
+          `aufnahme-${index + 1}.${audioExtension(part.blob.type)}`,
+          part.blob.type,
+          report.driveFolderId!,
+          token,
+        ),
+      );
+      await checkpoint();
+    }
+  }
+  report.rawAudioParts = (draft.audioParts || []).map((p) => ({
+    id: p.driveId!,
+    startTimeMs: p.startTimeMs,
+    durationMs: p.durationMs,
+  }));
   if (!report.rawAudioUrl && draft.audio) {
     progress("Audio in Google Drive sichern …");
     report.rawAudioUrl = await run(() =>
@@ -216,7 +301,7 @@ export async function restoreDraft(
   token: string,
 ): Promise<Draft> {
   const { run } = ownedOperation();
-  if (!report.rawAudioUrl)
+  if (!report.rawAudioUrl && !report.rawAudioParts?.length)
     throw new Error(
       "Keine Audioaufnahme in Drive vorhanden. Bitte den lokalen Entwurf öffnen.",
     );
@@ -227,7 +312,18 @@ export async function restoreDraft(
       relativeTimeMs: null,
       driveId,
     }));
-  const audio = await run(() => downloadDriveFile(report.rawAudioUrl!, token));
+  const audio = report.rawAudioUrl
+    ? await run(() => downloadDriveFile(report.rawAudioUrl!, token))
+    : undefined;
+  const audioParts = [];
+  for (const part of report.rawAudioParts || []) {
+    audioParts.push({
+      blob: await run(() => downloadDriveFile(part.id, token)),
+      startTimeMs: part.startTimeMs,
+      durationMs: part.durationMs,
+      driveId: part.id,
+    });
+  }
   const restoredPhotos = await run(() =>
     Promise.all(
       photos.map(async (p) => {
@@ -243,5 +339,14 @@ export async function restoreDraft(
       }),
     ),
   );
-  return { report, audio, photos: restoredPhotos };
+  return {
+    report,
+    audio,
+    audioParts,
+    audioStartMs: Math.max(
+      0,
+      ...audioParts.map((p) => p.startTimeMs + p.durationMs),
+    ),
+    photos: restoredPhotos,
+  };
 }

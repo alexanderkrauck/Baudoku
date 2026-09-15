@@ -31,6 +31,7 @@ export interface ReportData {
   durationMs?: number;
   captureState?: "recording" | "paused" | "stopped";
   rawAudioUrl?: string; // Legacy name: a private Drive file ID, not a URL
+  rawAudioParts?: { id: string; startTimeMs: number; durationMs: number }[];
   rawPhotoUrls?: string[];
   photos?: { id: string; relativeTimeMs: number | null; driveId?: string }[];
   driveFolderId?: string;
@@ -46,5 +47,13 @@ export interface CapturedPhoto {
 export interface Draft {
   report: ReportData;
   audio?: Blob;
+  audioParts?: {
+    blob: Blob;
+    startTimeMs: number;
+    durationMs: number;
+    driveId?: string;
+  }[];
+  audioStartMs?: number;
+  audioSequenceFloor?: number;
   photos: CapturedPhoto[];
 }

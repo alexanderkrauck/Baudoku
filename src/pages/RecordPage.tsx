@@ -29,16 +29,13 @@ import {
   putDraft,
   deleteDraft,
   appendRecordingChunk,
+  beginRecordingSession,
 } from "../lib/local";
 import { uid, saveReport } from "../lib/reports";
 import { verifyDriveAccess } from "../lib/drive";
 import { errorMessage, connectGoogle, driveToken } from "../lib/session";
 import { analyzeDraft, backupDraft, syncReport } from "../lib/workflow";
-import {
-  MAX_FILE_BYTES,
-  MAX_PHOTOS,
-  audioExtension,
-} from "../../shared/analysis";
+import { MAX_PHOTOS, audioExtension } from "../../shared/analysis";
 import type { Draft } from "../types";
 import DriveSettings from "../components/DriveSettings";
 import { RecordingClock, reconcileDraftPhotos } from "../lib/recording";
@@ -59,12 +56,18 @@ export const formatTime = (ms: number) =>
     .padStart(2, "0")}:${Math.floor((ms / 1000) % 60)
     .toString()
     .padStart(2, "0")}`;
-export default function RecordPage() {
+export default function RecordPage({
+  previewOnly = false,
+}: {
+  previewOnly?: boolean;
+}) {
+  const localPreview = import.meta.env.DEV && previewOnly;
+  const ownerId = () => (localPreview ? "local-recording-preview" : uid());
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedDraft = useRef(searchParams.get("draft")).current;
   const startNew = useRef(searchParams.has("new")).current;
-  const [accountId] = useState(uid);
+  const [accountId] = useState(ownerId);
   const [draft, setDraft] = useState<Draft>(fresh);
   const current = useRef(draft);
   const [loading, setLoading] = useState(true);
@@ -82,7 +85,7 @@ export default function RecordPage() {
   >(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [localStartOffered, setLocalStartOffered] = useState(false);
-  const [online, setOnline] = useState(navigator.onLine);
+  const [online, setOnline] = useState(!localPreview && navigator.onLine);
   const [folder, setFolder] = useState(savedDriveFolder);
   const [, refreshDriveSession] = useState(0);
   const driveReady = !!driveToken(state === "ready" ? 10 * 60 * 1000 : 0);
@@ -102,7 +105,7 @@ export default function RecordPage() {
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const update = () => setOnline(navigator.onLine);
+    const update = () => setOnline(!localPreview && navigator.onLine);
     const updateFolder = () => setFolder(savedDriveFolder());
     window.addEventListener("online", update);
     window.addEventListener("offline", update);
@@ -234,20 +237,23 @@ export default function RecordPage() {
         if (d && !cancelled) {
           current.current = d;
           setDraft(d);
-          setState(d.audio ? "review" : "ready");
+          setState(d.audio || d.audioParts?.length ? "review" : "ready");
           setDuration(d.report.durationMs || 0);
           setCheckpointMs(d.report.durationMs || 0);
           clock.current.reset(d.report.durationMs || 0);
           setSaved(true);
           if (d.audio && d.report.captureState !== "stopped")
             setWarning(
-              "Eine frühere Aufnahme wurde wiederhergestellt. Bitte die gesicherten Audiodaten anhören und anschließend in Drive sichern.",
+              "Deine Aufnahme wurde wiederhergestellt. Du kannst die gesicherten Abschnitte anhören, die Begehung fortsetzen oder in Drive sichern.",
             );
         }
         if (!cancelled)
-          navigate(`/record?draft=${(d || current.current).report.id}`, {
-            replace: true,
-          });
+          navigate(
+            `${localPreview ? "/__recording-preview" : "/record"}?draft=${(d || current.current).report.id}`,
+            {
+              replace: true,
+            },
+          );
       })
       .catch((e) => {
         if (!cancelled) setError(errorMessage(e));
@@ -261,7 +267,8 @@ export default function RecordPage() {
     const unload = (e: BeforeUnloadEvent) => {
       if (
         (recorder.current && recorder.current.state !== "inactive") ||
-        current.current.audio
+        current.current.audio ||
+        current.current.audioParts?.length
       ) {
         e.preventDefault();
         e.returnValue = "";
@@ -281,6 +288,7 @@ export default function RecordPage() {
     };
   }, []);
   async function authorizeDrive() {
+    if (localPreview) return;
     if (operation.current) return;
     operation.current = true;
     setError("");
@@ -299,6 +307,7 @@ export default function RecordPage() {
     }
   }
   async function start(localOnly = false) {
+    localOnly ||= localPreview;
     // Recheck at the actual click: the displayed token state may be a few seconds old.
     if (!localOnly && navigator.onLine && !driveToken(10 * 60 * 1000)) {
       await authorizeDrive();
@@ -322,7 +331,7 @@ export default function RecordPage() {
           throw e;
         }
       }
-      if (!active.current || uid() !== accountId) return;
+      if (!active.current || ownerId() !== accountId) return;
       setBusy("Mikrofon vorbereiten …");
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder)
         throw new Error(
@@ -349,10 +358,13 @@ export default function RecordPage() {
         stream.getTracks().forEach((t) => t.stop());
         throw e;
       }
+      await queue.current;
+      const session = await beginRecordingSession(accountId, current.current);
+      current.current = session.draft;
       recorder.current = rec;
       chunks.current = [];
-      chunkSequence.current = 0;
-      clock.current.reset();
+      chunkSequence.current = session.sequence;
+      clock.current.reset(session.draft.report.durationMs || 0);
       await persist({
         ...current.current,
         report: { ...current.current.report, captureState: "recording" },
@@ -382,13 +394,6 @@ export default function RecordPage() {
           reportId: next.report.id,
         });
         void queueWrite(async () => {}).catch(() => {});
-        if (audio.size > MAX_FILE_BYTES - 512000 && rec.state !== "inactive") {
-          if (active.current)
-            setWarning(
-              "Die maximale Aufnahmegröße ist erreicht. Die Aufnahme wurde beendet.",
-            );
-          stop();
-        }
       };
       rec.onerror = () => {
         if (active.current)
@@ -422,7 +427,7 @@ export default function RecordPage() {
       rec.start(1000);
       clock.current.resume();
       setState("recording");
-      setDuration(0);
+      setDuration(current.current.report.durationMs || 0);
     } catch (e) {
       stream?.getTracks().forEach((t) => t.stop());
       if (active.current)
@@ -511,7 +516,6 @@ export default function RecordPage() {
     if (!file || operation.current) return;
     setError("");
     if (
-      file.size > MAX_FILE_BYTES ||
       !file.size ||
       ![
         "audio/webm",
@@ -525,7 +529,7 @@ export default function RecordPage() {
       ].includes(file.type)
     ) {
       setError(
-        "Bitte eine Audiodatei bis 25 MB wählen (WebM, M4A, MP3, WAV, Ogg, AAC oder FLAC).",
+        "Bitte eine Audiodatei wählen (WebM, M4A, MP3, WAV, Ogg, AAC oder FLAC).",
       );
       return;
     }
@@ -540,7 +544,12 @@ export default function RecordPage() {
     });
   }
   async function process(analyze: boolean) {
-    if (!current.current.audio || operation.current) return;
+    if (localPreview) return;
+    if (
+      (!current.current.audio && !current.current.audioParts?.length) ||
+      operation.current
+    )
+      return;
     operation.current = true;
     setError("");
     setWarning("");
@@ -554,17 +563,17 @@ export default function RecordPage() {
           "Die Drive-Freigabe ist abgelaufen. Bitte zuerst Google Drive verbinden. Dein Entwurf bleibt erhalten.",
         );
       }
-      if (!active.current || uid() !== accountId) return;
+      if (!active.current || ownerId() !== accountId) return;
       setBusy("Entwurf lokal sichern …");
       await queue.current.catch(() => {});
       if (!active.current) return;
       let d = reconcileDraftPhotos(current.current, current.current.photos);
       d.report.title ||= `Begehung vom ${new Date(d.report.date).toLocaleDateString("de-AT")}`;
       await persist(d);
-      if (!active.current || uid() !== accountId) return;
+      if (!active.current || ownerId() !== accountId) return;
       const cloudWarning = await saveReport(d.report);
       if (cloudWarning) setWarning(cloudWarning);
-      if (!active.current || uid() !== accountId) return;
+      if (!active.current || ownerId() !== accountId) return;
       await backupDraft(d, token, setBusy);
       await persist({ ...d });
       if (!active.current) return;
@@ -582,10 +591,10 @@ export default function RecordPage() {
             report: { ...d.report, status: "error", error: errorMessage(e) },
           };
           await persist(d);
-          if (!active.current || uid() !== accountId) throw e;
+          if (!active.current || ownerId() !== accountId) throw e;
           await saveReport(d.report);
           try {
-            if (!active.current || uid() !== accountId) throw e;
+            if (!active.current || ownerId() !== accountId) throw e;
             await syncReport(d.report, token);
           } catch {
             /* primary analysis error remains visible */
@@ -630,29 +639,59 @@ export default function RecordPage() {
     setError("");
     setWarning("");
     setSaved(false);
-    navigate(`/record?draft=${d.report.id}`, { replace: true });
+    navigate(
+      `${localPreview ? "/__recording-preview" : "/record"}?draft=${d.report.id}`,
+      { replace: true },
+    );
   }
-  function download() {
-    if (!draft.audio) return;
-    const url = URL.createObjectURL(draft.audio);
+  function download(blob = draft.audio, index?: number) {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `aufnahme.${audioExtension(draft.audio.type)}`;
+    a.download = `aufnahme${index === undefined ? "" : "-" + (index + 1)}.${audioExtension(blob.type)}`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function leave() {
     if (busy || recording) return;
-    if (current.current.audio) setSheet("leave");
-    else navigate("/dashboard");
+    if (current.current.audio || current.current.audioParts?.length)
+      setSheet("leave");
+    else navigate(localPreview ? "/__recording-preview" : "/dashboard");
   }
   function capturePhoto() {
     setSheet(null);
     setCameraOpen(true);
   }
+  async function loadRecoveryTest() {
+    if (!localPreview || recording || busy) return;
+    const { recoveryFixture } = await import("../lib/recoveryFixture");
+    const test = recoveryFixture();
+    await queue.current;
+    chunks.current = [];
+    await persist(test);
+    clock.current.reset(1000);
+    setDuration(1000);
+    setState("review");
+    navigate(`/__recording-preview?draft=${test.report.id}`, { replace: true });
+  }
   const previewPhotos = draft.photos.slice(-3);
   return (
     <div className={`walk-page walk-${state}`}>
+      {localPreview && (
+        <div className="preview-banner">
+          DEVELOPMENT-TEST · Nur lokale Speicherung auf diesem Gerät · Kein
+          Drive-Upload
+          <button
+            disabled={recording || !!busy}
+            onClick={() =>
+              void loadRecoveryTest().catch((e) => setError(errorMessage(e)))
+            }
+          >
+            Neuen Testentwurf mit 100 Testbildern anlegen
+          </button>
+        </div>
+      )}
       <div className="walk-frame" inert={sheet !== null || cameraOpen}>
         <header className="walk-header">
           <button
@@ -745,7 +784,9 @@ export default function RecordPage() {
                   </div>
                   <button
                     className="walk-folder"
-                    onClick={() => setSheet("settings")}
+                    onClick={() => {
+                      if (!localPreview) setSheet("settings");
+                    }}
                   >
                     <FolderOpen size={18} />
                     <span>
@@ -854,11 +895,19 @@ export default function RecordPage() {
                         {draft.photos.length} Fotos <ArrowRight size={14} />
                       </button>
                     </div>
+                    {draft.audioParts?.map((part, index) => (
+                      <div key={index}>
+                        <p>Aufnahmeabschnitt {index + 1}</p>
+                        <AudioPreview blob={part.blob} />
+                      </div>
+                    ))}
                     {draft.audio && <AudioPreview blob={draft.audio} />}
                   </div>
                   <button
                     className="walk-folder"
-                    onClick={() => setSheet("settings")}
+                    onClick={() => {
+                      if (!localPreview) setSheet("settings");
+                    }}
                   >
                     <FolderOpen size={18} />
                     <span>
@@ -900,7 +949,7 @@ export default function RecordPage() {
                       <Camera size={28} />
                       <span>
                         {draft.photos.length >= MAX_PHOTOS
-                          ? "30 Fotos erreicht"
+                          ? `${MAX_PHOTOS} Fotos erreicht`
                           : "Foto aufnehmen"}
                       </span>
                     </button>
@@ -944,6 +993,13 @@ export default function RecordPage() {
                 </>
               ) : (
                 <>
+                  <button
+                    className="walk-secondary"
+                    onClick={() => void start(true)}
+                  >
+                    <Mic size={18} /> Begehung fortsetzen – weiteren Abschnitt
+                    aufnehmen
+                  </button>
                   {online && !driveReady && (
                     <button className="walk-secondary" onClick={authorizeDrive}>
                       Google Drive vor dem Speichern verbinden
@@ -952,7 +1008,11 @@ export default function RecordPage() {
                   <button
                     ref={saveButton}
                     className="walk-primary"
-                    disabled={!online || !driveReady || !draft.audio?.size}
+                    disabled={
+                      !online ||
+                      !driveReady ||
+                      !(draft.audio?.size || draft.audioParts?.length)
+                    }
                     onClick={() => process(true)}
                   >
                     <WandSparkles size={21} />
@@ -1138,13 +1198,20 @@ export default function RecordPage() {
               </button>
               <button
                 className="walk-secondary"
-                onClick={() => navigate("/dashboard")}
+                onClick={() =>
+                  navigate(localPreview ? "/__recording-preview" : "/dashboard")
+                }
               >
                 Bewusst als Entwurf verlassen
               </button>
             </div>
           ) : (
             <div className="walk-options">
+              {draft.audioParts?.map((part, i) => (
+                <button key={i} onClick={() => download(part.blob, i)}>
+                  Aufnahmeabschnitt {i + 1} herunterladen
+                </button>
+              ))}
               {draft.audio && (
                 <>
                   <button
@@ -1172,7 +1239,12 @@ export default function RecordPage() {
                   </button>
                 </>
               )}
-              <button onClick={() => setSheet("settings")}>
+              <button
+                disabled={localPreview}
+                onClick={() => {
+                  if (!localPreview) setSheet("settings");
+                }}
+              >
                 <FolderOpen size={19} />
                 Speicherort ändern
               </button>

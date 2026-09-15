@@ -155,7 +155,7 @@ describe("authenticated analysis endpoint", () => {
     expect(client.files.upload).not.toHaveBeenCalled();
   });
   it("accepts the full supported photo count and rejects one extra", async () => {
-    for (const count of [30, 31]) {
+    for (const count of [100, 101]) {
       const form = new FormData();
       form.append(
         "audio",
@@ -174,7 +174,7 @@ describe("authenticated analysis endpoint", () => {
         );
       form.append("photoTimestamps", JSON.stringify(metadata));
       const response = await send(form);
-      expect(response.status).toBe(count === 30 ? 200 : 400);
+      expect(response.status).toBe(count === 100 ? 200 : 400);
       await vi.waitFor(async () => expect(await readdir(root)).toEqual([]));
     }
   });
