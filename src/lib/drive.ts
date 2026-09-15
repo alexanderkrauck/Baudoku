@@ -334,6 +334,8 @@ export async function listDriveReports(
                 typeof photo.id === "string" &&
                 (photo.driveId === undefined ||
                   typeof photo.driveId === "string") &&
+                (photo.annotatedDriveId === undefined ||
+                  typeof photo.annotatedDriveId === "string") &&
                 (photo.relativeTimeMs === null ||
                   (typeof photo.relativeTimeMs === "number" &&
                     Number.isFinite(photo.relativeTimeMs) &&

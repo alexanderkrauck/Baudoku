@@ -91,7 +91,11 @@ async function analyzeSection(draft: Draft): Promise<ReportData> {
     error: "",
   };
 }
-export async function analyzeDraft(draft: Draft): Promise<ReportData> {
+export async function analyzeDraft(
+  draft: Draft,
+  progress: (message: string) => void = () => {},
+): Promise<ReportData> {
+  const { owner, run } = ownedOperation();
   if (!recordingSections(draft).length)
     throw new Error("Keine Audioaufnahme vorhanden.");
   const rooms: ReportData["rooms"] = [];
@@ -108,7 +112,10 @@ export async function analyzeDraft(draft: Draft): Promise<ReportData> {
           p.relativeTimeMs < section.startTimeMs + section.durationMs),
     );
     selected.forEach((p) => assigned.add(p.id));
-    const result = await analyzeSection({
+    progress(
+      `Aufnahmeabschnitt ${index + 1} analysieren … Fertige Abschnitte werden zwischengespeichert.`,
+    );
+    const input = {
       ...draft,
       audio: section.blob,
       photos: selected.map((p) => ({
@@ -118,7 +125,30 @@ export async function analyzeDraft(draft: Draft): Promise<ReportData> {
             ? null
             : Math.max(0, p.relativeTimeMs - section.startTimeMs),
       })),
-    });
+    };
+    // Hash actual input, not just length: changed/new photos or resumed audio
+    // cannot accidentally reuse an older result. Originals remain untouched.
+    const hashes = await Promise.all(
+      [section.blob, ...selected.map((p) => p.blob)].map(async (blob) =>
+        Array.from(
+          new Uint8Array(
+            await crypto.subtle.digest("SHA-256", await blob.arrayBuffer()),
+          ),
+          (b) => b.toString(16).padStart(2, "0"),
+        ).join(""),
+      ),
+    );
+    const cacheKey = JSON.stringify([
+      index,
+      section.startTimeMs,
+      section.durationMs,
+      input.photos.map((p) => [p.id, p.relativeTimeMs]),
+      hashes,
+    ]);
+    const result =
+      draft.analysisCache?.[cacheKey] || (await analyzeSection(input));
+    draft.analysisCache = { ...draft.analysisCache, [cacheKey]: result };
+    await run(() => putDraft(owner, draft));
     summaries.push(result.summary);
     suggestedTitle ||= result.title;
     rooms.push(
@@ -237,6 +267,19 @@ export async function backupDraft(
       );
       await checkpoint();
     }
+    if (photo.annotatedBlob && !meta.annotatedDriveId) {
+      progress(`Markierung zu Foto ${i + 1} sichern …`);
+      meta.annotatedDriveId = await run(() =>
+        uploadFileToFolder(
+          photo.annotatedBlob!,
+          `${photo.id}-markiert.jpg`,
+          "image/jpeg",
+          report.driveFolderId!,
+          token,
+        ),
+      );
+      await checkpoint();
+    }
   }
   assertOwner();
   report.rawPhotoUrls = report.photos.map((p) => p.driveId || "");
@@ -335,6 +378,13 @@ export async function restoreDraft(
           id: p.id,
           relativeTimeMs: p.relativeTimeMs,
           blob: await run(() => downloadDriveFile(p.driveId!, token)),
+          ...("annotatedDriveId" in p && p.annotatedDriveId
+            ? {
+                annotatedBlob: await run(() =>
+                  downloadDriveFile(p.annotatedDriveId!, token),
+                ),
+              }
+            : {}),
         };
       }),
     ),

@@ -55,6 +55,7 @@ describe("authenticated analysis endpoint", () => {
         verifyToken,
         uploadRoot: root,
         maxFileBytes: 1024,
+        analysisTimeoutMs: 1500,
         processingAttempts: 2,
         sleep: async () => {},
       }),
@@ -108,11 +109,15 @@ describe("authenticated analysis endpoint", () => {
     expect(verifyToken).toHaveBeenCalledWith("valid-token");
     expect(client.files.upload).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ config: { mimeType: "audio/webm" } }),
+      expect.objectContaining({
+        config: expect.objectContaining({ mimeType: "audio/webm" }),
+      }),
     );
     expect(client.files.upload).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ config: { mimeType: "image/jpeg" } }),
+      expect.objectContaining({
+        config: expect.objectContaining({ mimeType: "image/jpeg" }),
+      }),
     );
     const request = client.models.generateContent.mock.calls[0][0];
     expect(request.config.responseJsonSchema).toBeDefined();
@@ -294,5 +299,25 @@ describe("authenticated analysis endpoint", () => {
     expect((await send(body())).status).toBe(429);
     finish({ text: JSON.stringify(report) });
     expect((await first).status).toBe(200);
+  });
+  it("accepts the next recording section while provider cleanup is still pending", async () => {
+    let release!: () => void;
+    const cleanup = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    client.files.delete.mockImplementation(() => cleanup);
+    try {
+      expect((await send(body())).status).toBe(200);
+      expect((await send(body())).status).toBe(200);
+    } finally {
+      release();
+    }
+  });
+  it("expires a stuck provider request and allows a retry", async () => {
+    client.models.generateContent.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    expect((await send(body())).status).toBe(504);
+    expect((await send(body())).status).toBe(200);
   });
 });

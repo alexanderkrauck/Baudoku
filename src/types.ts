@@ -33,7 +33,12 @@ export interface ReportData {
   rawAudioUrl?: string; // Legacy name: a private Drive file ID, not a URL
   rawAudioParts?: { id: string; startTimeMs: number; durationMs: number }[];
   rawPhotoUrls?: string[];
-  photos?: { id: string; relativeTimeMs: number | null; driveId?: string }[];
+  photos?: {
+    id: string;
+    relativeTimeMs: number | null;
+    driveId?: string;
+    annotatedDriveId?: string;
+  }[];
   driveFolderId?: string;
   driveReportId?: string;
   driveMarkdownId?: string;
@@ -42,9 +47,12 @@ export interface ReportData {
 export interface CapturedPhoto {
   id: string;
   blob: Blob;
+  annotatedBlob?: Blob;
+  annotations?: PhotoAnnotation[];
   relativeTimeMs: number | null;
 }
 export interface Draft {
+  analysisCache?: Record<string, ReportData>;
   report: ReportData;
   audio?: Blob;
   audioParts?: {
@@ -56,4 +64,8 @@ export interface Draft {
   audioStartMs?: number;
   audioSequenceFloor?: number;
   photos: CapturedPhoto[];
+}
+export interface PhotoAnnotation {
+  tool: "arrow" | "circle" | "freehand";
+  points: { x: number; y: number }[];
 }

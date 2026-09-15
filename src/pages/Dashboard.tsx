@@ -18,6 +18,8 @@ import { listDrafts } from "../lib/local";
 import { Shell, Notice, Busy, Status, dateLabel } from "../components/UI";
 import type { Draft, ReportData } from "../types";
 import DriveSettings from "../components/DriveSettings";
+import DefectRegister from "../components/DefectRegister";
+import { defectCounts } from "../lib/defectIndex";
 export default function Dashboard() {
   const [reports, setReports] = useState<ReportData[]>([]);
   const [dirty, setDirty] = useState<string[]>([]);
@@ -28,6 +30,7 @@ export default function Dashboard() {
   const [filter, setFilter] = useState("all");
   const [settings, setSettings] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [showDefects, setShowDefects] = useState(false);
   useEffect(() => {
     listDrafts(uid(), { includeAudio: false })
       .then(setDrafts)
@@ -106,10 +109,19 @@ export default function Dashboard() {
           </h1>
           <p className="muted">Jeder Befund. Jedes Detail. An einem Ort.</p>
         </div>
-        <Link to="/record?new=1" className="btn btn-primary">
-          <Plus size={20} />
-          Neue Begehung
-        </Link>
+        <div className="actions">
+          <button
+            className="btn"
+            aria-pressed={showDefects}
+            onClick={() => setShowDefects((value) => !value)}
+          >
+            {showDefects ? "Begehungen anzeigen" : "Mängelübersicht"}
+          </button>
+          <Link to="/record?new=1" className="btn btn-primary">
+            <Plus size={20} />
+            Neue Begehung
+          </Link>
+        </div>
       </div>
       {error && <Notice>{error}</Notice>}
       {dirty.length > 0 && (
@@ -170,83 +182,91 @@ export default function Dashboard() {
           </strong>
         </div>
       </div>
-      <div className="list-toolbar">
-        <div className="tabs" aria-label="Berichte filtern">
-          {[
-            ["all", "Alle"],
-            ["completed", "Erstellt"],
-            ["draft", "In Bearbeitung"],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              className={filter === id ? "active" : ""}
-              onClick={() => setFilter(id)}
-              aria-pressed={filter === id}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="search">
-          <Search size={17} />
-          <input
-            aria-label="Berichte durchsuchen"
-            placeholder="Begehung suchen …"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
-      </div>
-      {loading ? (
-        <Busy text="Begehungen laden …" />
-      ) : visible.length ? (
-        <div className="report-list">
-          {visible.map((r, i) => (
-            <Link key={r.id} to={`/report/${r.id}`} className="report-card">
-              <div className="report-number">
-                {String(i + 1).padStart(2, "0")}
-              </div>
-              <div className="report-card-body">
-                <div className="report-card-meta">
-                  <span>{dateLabel(r.date)}</span>
-                  <Status report={r} local={dirty.includes(r.id)} />
-                </div>
-                <h2>{r.title || "Unbenannte Begehung"}</h2>
-                <p>
-                  {r.summary || "Aufnahme prüfen und einen Bericht erstellen."}
-                </p>
-                <span className="small muted">
-                  {r.rooms?.length || 0} Bereiche ·{" "}
-                  {r.photos?.length || r.rawPhotoUrls?.length || 0} Fotos
-                </span>
-              </div>
-              <ArrowRight className="report-arrow" />
-            </Link>
-          ))}
-        </div>
+      {showDefects ? (
+        <DefectRegister reports={reports} />
       ) : (
-        <div className="empty panel">
-          <div className="empty-icon">
-            <FileText size={32} />
+        <>
+          <div className="list-toolbar">
+            <div className="tabs" aria-label="Berichte filtern">
+              {[
+                ["all", "Alle"],
+                ["completed", "Erstellt"],
+                ["draft", "In Bearbeitung"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  className={filter === id ? "active" : ""}
+                  onClick={() => setFilter(id)}
+                  aria-pressed={filter === id}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="search">
+              <Search size={17} />
+              <input
+                aria-label="Berichte durchsuchen"
+                placeholder="Begehung suchen …"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
           </div>
-          <span className="eyebrow">HIER BEGINNT DEINE DOKUMENTATION</span>
-          <h2>
-            {search || filter !== "all"
-              ? "Keine passenden Begehungen"
-              : "Die nächste Begehung? Gut vorbereitet."}
-          </h2>
-          <p className="muted">
-            {search || filter !== "all"
-              ? "Versuche einen anderen Suchbegriff oder Filter."
-              : "Starte eine Aufnahme, benenne den Bereich und beschreibe, was du siehst. Die KI hilft dir beim Strukturieren."}
-          </p>
-          {!search && filter === "all" && (
-            <Link className="btn btn-primary" to="/record?new=1">
-              <Mic size={18} />
-              Erste Begehung starten
-            </Link>
+          {loading ? (
+            <Busy text="Begehungen laden …" />
+          ) : visible.length ? (
+            <div className="report-list">
+              {visible.map((r, i) => (
+                <Link key={r.id} to={`/report/${r.id}`} className="report-card">
+                  <div className="report-number">
+                    {String(i + 1).padStart(2, "0")}
+                  </div>
+                  <div className="report-card-body">
+                    <div className="report-card-meta">
+                      <span>{dateLabel(r.date)}</span>
+                      <Status report={r} local={dirty.includes(r.id)} />
+                    </div>
+                    <h2>{r.title || "Unbenannte Begehung"}</h2>
+                    <p>
+                      {r.summary ||
+                        "Aufnahme prüfen und einen Bericht erstellen."}
+                    </p>
+                    <span className="small muted">
+                      {r.rooms?.length || 0} Bereiche ·{" "}
+                      {r.photos?.length || r.rawPhotoUrls?.length || 0} Fotos
+                      {` · ${defectCounts(r).open} offen · ${defectCounts(r).done} erledigt`}
+                    </span>
+                  </div>
+                  <ArrowRight className="report-arrow" />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="empty panel">
+              <div className="empty-icon">
+                <FileText size={32} />
+              </div>
+              <span className="eyebrow">HIER BEGINNT DEINE DOKUMENTATION</span>
+              <h2>
+                {search || filter !== "all"
+                  ? "Keine passenden Begehungen"
+                  : "Die nächste Begehung? Gut vorbereitet."}
+              </h2>
+              <p className="muted">
+                {search || filter !== "all"
+                  ? "Versuche einen anderen Suchbegriff oder Filter."
+                  : "Starte eine Aufnahme, benenne den Bereich und beschreibe, was du siehst. Die KI hilft dir beim Strukturieren."}
+              </p>
+              {!search && filter === "all" && (
+                <Link className="btn btn-primary" to="/record?new=1">
+                  <Mic size={18} />
+                  Erste Begehung starten
+                </Link>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
     </Shell>
   );

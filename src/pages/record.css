@@ -851,3 +851,34 @@
     min-height: 75px;
   }
 }
+
+/* Review must scroll when several restored sections or an error need space. */
+.walk-review .walk-content {
+  overflow-y: auto;
+  justify-content: flex-start;
+}
+.walk-review .walk-review-intro {
+  flex: 0 0 auto;
+  min-height: auto;
+  gap: 8px;
+}
+.walk-review .walk-review-intro h1 {
+  font-size: clamp(22px, 5vw, 30px);
+  line-height: 1.15;
+}
+.walk-review .walk-review-media {
+  flex-shrink: 0;
+}
+.walk-review .walk-message {
+  position: static;
+  margin: 8px 20px 0;
+  max-height: 100px;
+}
+.walk-gallery figcaption {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.walk-progress h1 {
+  font-size: clamp(21px, 5vw, 30px);
+  line-height: 1.25;
+}
