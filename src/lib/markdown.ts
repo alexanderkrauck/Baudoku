@@ -93,13 +93,14 @@ export function reportToMarkdown(report: ReportData): string {
   function photoLine(photo: {
     id: string;
     driveId?: string;
+    annotatedDriveId?: string;
     relativeTimeMs: number | null;
   }) {
     const label = heading(photo.id);
     const reference = photo.driveId
       ? `[${label}](${driveLink(photo.driveId)})`
       : `${label} (noch nicht in Drive gesichert)`;
-    return `- ${reference} · ${photo.relativeTimeMs === null ? "Aufnahmezeit unbekannt" : time(photo.relativeTimeMs)}`;
+    return `- ${reference}${photo.annotatedDriveId ? ` · [Markierte Version](${driveLink(photo.annotatedDriveId)})` : ""} · ${photo.relativeTimeMs === null ? "Aufnahmezeit unbekannt" : time(photo.relativeTimeMs)}`;
   }
   report.rooms.forEach((room, index) => {
     lines.push("", `## ${index + 1}. ${heading(room.name)}`);

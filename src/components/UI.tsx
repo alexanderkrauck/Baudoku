@@ -1,15 +1,18 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, Blocks, Cloud, Loader2, WifiOff } from "lucide-react";
+import { ArrowUpRight, Cloud, Loader2, WifiOff } from "lucide-react";
 import type { ReportData } from "../types";
 export function Brand() {
   return (
     <Link to="/dashboard" className="brand" aria-label="Baudoku Übersicht">
-      <span className="brand-mark">
-        <Blocks size={23} />
-      </span>
-      bau<span className="brand-light">doku</span>
-      <span className="brand-dot">.</span>
+      <img
+        src="/ks-signet.png"
+        alt="KRAUCK SYSTEMS"
+        width="54"
+        height="30"
+        style={{ objectFit: "contain", marginRight: 10 }}
+      />
+      <span style={{ fontSize: 19, letterSpacing: "0.08em" }}>BAUDOKU</span>
     </Link>
   );
 }

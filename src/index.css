@@ -2363,3 +2363,12 @@ body:has(.report-view) main {
     max-height: 48mm !important;
   }
 }
+
+.register-filters { display: flex; flex-wrap: wrap; gap: 14px; margin: 20px 0; }
+.register-filters label { display: grid; gap: 6px; min-width: 170px; }
+.register-table { overflow-x: auto; }
+.register-table table { width: 100%; min-width: 720px; border-collapse: collapse; background: white; }
+.register-table th, .register-table td { text-align: left; padding: 12px; border-bottom: 1px solid #dce5dd; vertical-align: top; }
+.register-table th { background: #e4ece6; }
+.register-table td:last-child { width: 24%; }
+.register-table img { width: 100%; max-height: 180px; object-fit: contain; }

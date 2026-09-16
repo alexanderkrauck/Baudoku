@@ -73,6 +73,73 @@ beforeEach(() => {
   mocks.save.mockResolvedValue(null);
 });
 describe("upload checkpoints and account ownership", () => {
+  it("resumes after a failed later analysis section without redoing the first or creating a new report", async () => {
+    const value = draft();
+    value.audioParts = [
+      {
+        blob: new Blob(["earlier"], { type: "audio/webm" }),
+        startTimeMs: 0,
+        durationMs: 1000,
+      },
+    ];
+    value.audioStartMs = 1000;
+    value.report.durationMs = 3000;
+    const result = {
+      title: "Test",
+      summary: "Befund",
+      rooms: [
+        {
+          name: "Raum",
+          summary: "Befund",
+          transcription: "Test",
+          photoIds: [],
+          defects: [],
+        },
+      ],
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => result })
+      .mockRejectedValueOnce(new Error("Netz unterbrochen"));
+    vi.stubGlobal("fetch", fetch);
+    await expect(analyzeDraft(value)).rejects.toThrow("Netz unterbrochen");
+    expect(Object.keys(value.analysisCache || {})).toHaveLength(1);
+    const recovered = structuredClone(value);
+    fetch.mockResolvedValue({ ok: true, json: async () => result });
+    const report = await analyzeDraft(recovered);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(report.id).toBe("one");
+    expect(report.rooms).toHaveLength(2);
+    expect(recovered.photos).toHaveLength(3);
+    expect(await recovered.audio!.text()).toBe("audio");
+    expect(await recovered.audioParts![0].blob.text()).toBe("earlier");
+    await analyzeDraft(recovered);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    recovered.photos[0].blob = new Blob(["different image"], {
+      type: "image/jpeg",
+    });
+    await analyzeDraft(recovered);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+  it("uploads annotated copies separately and restores both originals and annotations", async () => {
+    const value = draft();
+    const original = value.photos[0].blob;
+    value.photos[0].annotatedBlob = new Blob(["marked"], {
+      type: "image/jpeg",
+    });
+    await backupDraft(value, "token", vi.fn());
+    expect(value.photos[0].blob).toBe(original);
+    expect(value.report.photos?.[0]).toMatchObject({
+      driveId: "a.jpg",
+      annotatedDriveId: "a-markiert.jpg",
+    });
+    const count = mocks.upload.mock.calls.length;
+    await backupDraft(value, "token", vi.fn());
+    expect(mocks.upload).toHaveBeenCalledTimes(count);
+    await restoreDraft(value.report, "token");
+    expect(mocks.download).toHaveBeenCalledWith("a.jpg", "token");
+    expect(mocks.download).toHaveBeenCalledWith("a-markiert.jpg", "token");
+  });
   it("checkpoints each media upload locally without repeated Firestore waits", async () => {
     const value = draft();
     await backupDraft(value, "drive-token", vi.fn());

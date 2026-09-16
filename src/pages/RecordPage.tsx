@@ -21,6 +21,8 @@ import {
 import { BlobImage, AudioPreview } from "../components/UI";
 import RecordingSheet from "../components/RecordingSheet";
 import RecordingCamera from "../components/RecordingCamera";
+import PhotoAnnotator from "../components/PhotoAnnotator";
+import { annotateDraftPhoto } from "../lib/annotations";
 import { savedDriveFolder } from "../lib/driveSettings";
 import "./record.css";
 import { useRecordingLifecycle } from "../lib/useRecordingLifecycle";
@@ -84,6 +86,7 @@ export default function RecordPage({
     "settings" | "photos" | "options" | "leave" | null
   >(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [annotatingId, setAnnotatingId] = useState<string | null>(null);
   const [localStartOffered, setLocalStartOffered] = useState(false);
   const [online, setOnline] = useState(!localPreview && navigator.onLine);
   const [folder, setFolder] = useState(savedDriveFolder);
@@ -577,12 +580,12 @@ export default function RecordPage({
       await backupDraft(d, token, setBusy);
       await persist({ ...d });
       if (!active.current) return;
-      if (analyze) {
+      if (analyze && d.report.status !== "completed") {
         setBusy(
           "Räume, Befunde und Fotos analysieren … Bitte diese Seite geöffnet lassen.",
         );
         try {
-          const result = await analyzeDraft(d);
+          const result = await analyzeDraft(d, setBusy);
           d = { ...d, report: result };
           await persist(d);
         } catch (e) {
@@ -644,12 +647,15 @@ export default function RecordPage({
       { replace: true },
     );
   }
-  function download(blob = draft.audio, index?: number) {
+  function download(blob = draft.audio, index?: number | string) {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `aufnahme${index === undefined ? "" : "-" + (index + 1)}.${audioExtension(blob.type)}`;
+    a.download =
+      typeof index === "string"
+        ? index
+        : `aufnahme${index === undefined ? "" : "-" + (index + 1)}.${audioExtension(blob.type)}`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -692,7 +698,10 @@ export default function RecordPage({
           </button>
         </div>
       )}
-      <div className="walk-frame" inert={sheet !== null || cameraOpen}>
+      <div
+        className="walk-frame"
+        inert={sheet !== null || cameraOpen || !!annotatingId}
+      >
         <header className="walk-header">
           <button
             className="walk-icon"
@@ -1016,7 +1025,9 @@ export default function RecordPage({
                     onClick={() => process(true)}
                   >
                     <WandSparkles size={21} />
-                    In Drive sichern & analysieren
+                    {error
+                      ? "Erneut sichern & analysieren"
+                      : "In Drive sichern & analysieren"}
                     <ArrowRight size={18} />
                   </button>
                   <p className="walk-save-hint">
@@ -1093,6 +1104,22 @@ export default function RecordPage({
           e.target.value = "";
         }}
       />
+      {annotatingId && draft.photos.find((p) => p.id === annotatingId) && (
+        <PhotoAnnotator
+          photo={draft.photos.find((p) => p.id === annotatingId)!}
+          onClose={() => setAnnotatingId(null)}
+          onSave={async (annotations, blob) => {
+            await persist(
+              annotateDraftPhoto(
+                current.current,
+                annotatingId,
+                annotations,
+                blob,
+              ),
+            );
+          }}
+        />
+      )}
       {cameraOpen && (
         <RecordingCamera
           onClose={() => setCameraOpen(false)}
@@ -1104,11 +1131,12 @@ export default function RecordPage({
           onCapture={async (blob) => {
             if (current.current.photos.length >= MAX_PHOTOS)
               throw new Error("Maximale Fotoanzahl erreicht.");
+            const photoId = `photo_${crypto.randomUUID()}`;
             await persist(
               reconcileDraftPhotos(current.current, [
                 ...current.current.photos,
                 {
-                  id: `photo_${crypto.randomUUID()}`,
+                  id: photoId,
                   blob,
                   relativeTimeMs: state === "review" ? null : elapsedNow(),
                 },
@@ -1117,6 +1145,7 @@ export default function RecordPage({
               // The photo is already retained in memory; the global storage
               // error explains recovery. Do not invite a duplicate capture.
             });
+            setSheet("photos");
           }}
         />
       )}
@@ -1141,10 +1170,24 @@ export default function RecordPage({
                 {draft.photos.map((photo, i) => (
                   <figure key={photo.id}>
                     <BlobImage
-                      blob={photo.blob}
+                      blob={photo.annotatedBlob || photo.blob}
                       alt={`Baustellenfoto ${i + 1}`}
                     />
                     <figcaption>
+                      <button
+                        className="btn"
+                        onClick={() => setAnnotatingId(photo.id)}
+                      >
+                        Markieren
+                      </button>
+                      <button
+                        className="btn"
+                        onClick={() =>
+                          download(photo.blob, `${photo.id}-original.jpg`)
+                        }
+                      >
+                        Original
+                      </button>
                       <span>
                         {photo.relativeTimeMs === null
                           ? "Ohne Zeitstempel"

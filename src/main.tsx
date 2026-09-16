@@ -20,7 +20,9 @@ createRoot(document.getElementById("root")!).render(
       </Suspense>
     ) : Preview && window.location.pathname === "/__preview" ? (
       <Suspense fallback={<p>Preview wird geladen …</p>}>
-        <Preview />
+        <BrowserRouter>
+          <Preview />
+        </BrowserRouter>
       </Suspense>
     ) : (
       <App />

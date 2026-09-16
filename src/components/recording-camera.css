@@ -40,11 +40,38 @@
   color: white;
 }
 .walk-camera-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
   flex: 1;
   min-height: 0;
   position: relative;
   background: #09160f;
   overflow: hidden;
+}
+.walk-camera-image {
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.camera-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.camera-zoom input {
+  width: min(40vw, 200px);
+}
+@media (max-height: 480px) and (orientation: landscape) {
+  .camera-zoom {
+    position: absolute;
+    bottom: 4px;
+    right: 120px;
+    width: 240px;
+  }
 }
 .walk-camera-preview video {
   width: 100%;

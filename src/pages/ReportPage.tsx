@@ -47,7 +47,7 @@ import {
   BlobImage,
 } from "../components/UI";
 import { reportToMarkdown } from "../lib/markdown";
-function Photo({
+export function Photo({
   driveId,
   id,
   token,
@@ -206,7 +206,7 @@ export default function ReportPage() {
     };
   }, []);
   const view = edited || report;
-  const photos =
+  const photos: NonNullable<ReportData["photos"]> =
     view?.photos ||
     (view?.rawPhotoUrls || []).map((driveId, i) => ({
       id: `photo_${i}`,
@@ -299,7 +299,8 @@ export default function ReportPage() {
         );
       const local = await getDraft(owner, report.id);
       const d =
-        local?.report.id === report.id && local.audio
+        local?.report.id === report.id &&
+        (local.audio || local.audioParts?.length)
           ? { ...local, report }
           : await restoreDraft(report, t);
       if (uid() !== owner)
@@ -308,7 +309,7 @@ export default function ReportPage() {
       setBusy(
         "Räume und Befunde analysieren … Bitte diese Seite geöffnet lassen.",
       );
-      const next = await analyzeDraft(d);
+      const next = await analyzeDraft(d, setBusy);
       if (uid() !== owner)
         throw new Error(
           "Das Google-Konto wurde gewechselt. Bitte den Bericht im ursprünglichen Konto öffnen.",
@@ -631,7 +632,10 @@ export default function ReportPage() {
           renderPhoto={(photoId) => (
             <Photo
               id={photoId}
-              driveId={photos.find((p) => p.id === photoId)?.driveId}
+              driveId={
+                photos.find((p) => p.id === photoId)?.annotatedDriveId ||
+                photos.find((p) => p.id === photoId)?.driveId
+              }
               token={token}
             />
           )}

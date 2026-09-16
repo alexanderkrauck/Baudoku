@@ -3,6 +3,8 @@ import DefectOverview from "../components/DefectOverview";
 import ReportHeader from "../components/ReportHeader";
 import ReportFooter from "../components/ReportFooter";
 import type { ReportData } from "../types";
+import DefectRegister from "../components/DefectRegister";
+import { Brand } from "../components/UI";
 
 const previewStorageKey = "baudoku-development-preview-v1";
 /** Development-only browser copy. Never writes to Firebase or Drive. */
@@ -52,10 +54,28 @@ export default function PreviewPage() {
         bleiben unverändert
       </div>
       <main style={{ maxWidth: 1120, margin: "0 auto", padding: "24px" }}>
+        <div
+          className="no-print"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 24,
+          }}
+        >
+          <Brand />
+          <a className="btn" href="/__recording-preview">
+            Aufnahme / Foto-Markierung testen
+          </a>
+        </div>
         {report ? <ReportHeader report={report} /> : <h1>Begehung laden</h1>}
         {error && <p role="alert">{error}</p>}
         {report && (
           <>
+            <details className="no-print">
+              <summary>Zentrale Mängelübersicht testen</summary>
+              <DefectRegister reports={[report]} preview />
+            </details>
             <details className="no-print">
               <summary>Zusammenfassung anzeigen</summary>
               <p className="muted">{report.summary}</p>
