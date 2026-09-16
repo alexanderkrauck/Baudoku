@@ -148,6 +148,7 @@ Automated build/type checks and mocked browser/API tests can verify navigation, 
 Before relying on a deployment, use a test account to sign in, reload, choose a Drive folder, record/pause/resume with photos, generate a report, edit and save it, and inspect the actual Drive files. Open the report on a second device to verify the Firebase index. Test an expired Drive authorization and an offline retry. Install the production PWA and check that an offline reload opens the shell. No cloud-rule deployment or live-account smoke test is implied by pushing this repository.
 
 See [the project map](docs/PROJECT_MAP.md) for module boundaries and the failure modes addressed.
+For an administrator-ready recovery path that does not depend on this computer, see [Cloud continuity](docs/CLOUD_CONTINUITY.md).
 
 ### Large walkthroughs and interruption recovery (development)
 
